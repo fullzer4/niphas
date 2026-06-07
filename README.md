@@ -1,6 +1,6 @@
 # Niphas
 
-> νιφάς –*snowflake*, in Ancient Greek.
+> νιφάς – *snowflake*, in Ancient Greek.
 
 **Nix-native platform for Kubernetes.** Run closures, not container images.
 
