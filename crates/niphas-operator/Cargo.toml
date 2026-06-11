@@ -1,0 +1,33 @@
+[package]
+name = "niphas-operator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+niphas-core = { workspace = true, features = ["runtime"] }
+kube = { workspace = true, features = ["runtime", "client"] }
+kube-runtime.workspace = true
+kube-leader-election.workspace = true
+k8s-openapi.workspace = true
+axum.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+tikv-jemallocator = { workspace = true, optional = true }
+tower.workspace = true
+tower-http.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+time.workspace = true
+
+[features]
+default = []
+jemalloc = ["dep:tikv-jemallocator"]

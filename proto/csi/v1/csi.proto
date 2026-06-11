@@ -1,0 +1,230 @@
+// Container Storage Interface -- subset for Niphas CSI driver.
+// Based on CSI spec v1.12.0.
+// Only Identity and Node services are implemented (ephemeral inline volumes).
+
+syntax = "proto3";
+package csi.v1;
+
+option go_package = "csi";
+
+import "google/protobuf/wrappers.proto";
+
+// ---- Identity Service ----
+
+service Identity {
+  rpc GetPluginInfo(GetPluginInfoRequest) returns (GetPluginInfoResponse) {}
+  rpc GetPluginCapabilities(GetPluginCapabilitiesRequest) returns (GetPluginCapabilitiesResponse) {}
+  rpc Probe(ProbeRequest) returns (ProbeResponse) {}
+}
+
+message GetPluginInfoRequest {}
+
+message GetPluginInfoResponse {
+  string name = 1;
+  string vendor_version = 2;
+  map<string, string> manifest = 3;
+}
+
+message GetPluginCapabilitiesRequest {}
+
+message GetPluginCapabilitiesResponse {
+  repeated PluginCapability capabilities = 1;
+}
+
+message PluginCapability {
+  message Service {
+    enum Type {
+      UNKNOWN = 0;
+      CONTROLLER_SERVICE = 1;
+      VOLUME_ACCESSIBILITY_CONSTRAINTS = 2;
+      GROUP_CONTROLLER_SERVICE = 3;
+    }
+    Type type = 1;
+  }
+
+  message VolumeExpansion {
+    enum Type {
+      UNKNOWN = 0;
+      ONLINE = 1;
+      OFFLINE = 2;
+    }
+    Type type = 1;
+  }
+
+  oneof type {
+    Service service = 1;
+    VolumeExpansion volume_expansion = 2;
+  }
+}
+
+message ProbeRequest {}
+
+message ProbeResponse {
+  google.protobuf.BoolValue ready = 1;
+}
+
+// ---- Node Service ----
+
+service Node {
+  rpc NodeStageVolume(NodeStageVolumeRequest) returns (NodeStageVolumeResponse) {}
+  rpc NodeUnstageVolume(NodeUnstageVolumeRequest) returns (NodeUnstageVolumeResponse) {}
+  rpc NodePublishVolume(NodePublishVolumeRequest) returns (NodePublishVolumeResponse) {}
+  rpc NodeUnpublishVolume(NodeUnpublishVolumeRequest) returns (NodeUnpublishVolumeResponse) {}
+  rpc NodeGetVolumeStats(NodeGetVolumeStatsRequest) returns (NodeGetVolumeStatsResponse) {}
+  rpc NodeExpandVolume(NodeExpandVolumeRequest) returns (NodeExpandVolumeResponse) {}
+  rpc NodeGetCapabilities(NodeGetCapabilitiesRequest) returns (NodeGetCapabilitiesResponse) {}
+  rpc NodeGetInfo(NodeGetInfoRequest) returns (NodeGetInfoResponse) {}
+}
+
+message NodeStageVolumeRequest {
+  string volume_id = 1;
+  map<string, string> publish_context = 2;
+  string staging_target_path = 3;
+  VolumeCapability volume_capability = 4;
+  map<string, string> secrets = 5;
+  map<string, string> volume_context = 6;
+}
+
+message NodeStageVolumeResponse {}
+
+message NodeUnstageVolumeRequest {
+  string volume_id = 1;
+  string staging_target_path = 2;
+}
+
+message NodeUnstageVolumeResponse {}
+
+message NodePublishVolumeRequest {
+  string volume_id = 1;
+  map<string, string> publish_context = 2;
+  string staging_target_path = 3;
+  string target_path = 4;
+  VolumeCapability volume_capability = 5;
+  bool readonly = 6;
+  map<string, string> secrets = 7;
+  map<string, string> volume_context = 8;
+}
+
+message NodePublishVolumeResponse {}
+
+message NodeUnpublishVolumeRequest {
+  string volume_id = 1;
+  string target_path = 2;
+}
+
+message NodeUnpublishVolumeResponse {}
+
+message NodeGetVolumeStatsRequest {
+  string volume_id = 1;
+  string volume_path = 2;
+  string staging_target_path = 3;
+}
+
+message NodeGetVolumeStatsResponse {
+  repeated VolumeUsage usage = 1;
+  VolumeCondition volume_condition = 2;
+}
+
+message VolumeUsage {
+  enum Unit {
+    UNKNOWN = 0;
+    BYTES = 1;
+    INODES = 2;
+  }
+  int64 available = 1;
+  int64 total = 2;
+  int64 used = 3;
+  Unit unit = 4;
+}
+
+message VolumeCondition {
+  bool abnormal = 1;
+  string message = 2;
+}
+
+message NodeExpandVolumeRequest {
+  string volume_id = 1;
+  string volume_path = 2;
+  CapacityRange capacity_range = 3;
+  string staging_target_path = 4;
+  VolumeCapability volume_capability = 5;
+  map<string, string> secrets = 6;
+}
+
+message NodeExpandVolumeResponse {
+  int64 capacity_bytes = 1;
+}
+
+message NodeGetCapabilitiesRequest {}
+
+message NodeGetCapabilitiesResponse {
+  repeated NodeServiceCapability capabilities = 1;
+}
+
+message NodeServiceCapability {
+  message RPC {
+    enum Type {
+      UNKNOWN = 0;
+      STAGE_UNSTAGE_VOLUME = 1;
+      GET_VOLUME_STATS = 2;
+      EXPAND_VOLUME = 3;
+      VOLUME_CONDITION = 4;
+      SINGLE_NODE_MULTI_WRITER = 5;
+      VOLUME_MOUNT_GROUP = 6;
+    }
+    Type type = 1;
+  }
+
+  oneof type {
+    RPC rpc = 1;
+  }
+}
+
+message NodeGetInfoRequest {}
+
+message NodeGetInfoResponse {
+  string node_id = 1;
+  int64 max_volumes_per_node = 2;
+  Topology accessible_topology = 3;
+}
+
+message Topology {
+  map<string, string> segments = 1;
+}
+
+// ---- Shared types ----
+
+message VolumeCapability {
+  message BlockVolume {}
+
+  message MountVolume {
+    string fs_type = 1;
+    repeated string mount_flags = 2;
+    string volume_mount_group = 3;
+  }
+
+  message AccessMode {
+    enum Mode {
+      UNKNOWN = 0;
+      SINGLE_NODE_WRITER = 1;
+      SINGLE_NODE_READER_ONLY = 2;
+      MULTI_NODE_READER_ONLY = 3;
+      MULTI_NODE_SINGLE_WRITER = 4;
+      MULTI_NODE_MULTI_WRITER = 5;
+      SINGLE_NODE_SINGLE_WRITER = 6;
+      SINGLE_NODE_MULTI_WRITER = 7;
+    }
+    Mode mode = 1;
+  }
+
+  oneof access_type {
+    BlockVolume block = 1;
+    MountVolume mount = 2;
+  }
+  AccessMode access_mode = 3;
+}
+
+message CapacityRange {
+  int64 required_bytes = 1;
+  int64 limit_bytes = 2;
+}

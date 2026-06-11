@@ -1,0 +1,30 @@
+[package]
+name = "niphas-eval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+jemalloc = ["dep:tikv-jemallocator"]
+
+[dependencies]
+niphas-core.workspace = true
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+tikv-jemallocator = { workspace = true, optional = true }
+reqwest.workspace = true
+thiserror.workspace = true
+futures.workspace = true
+
+[dev-dependencies]
+http-body-util = "0.1"
