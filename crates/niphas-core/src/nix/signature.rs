@@ -18,13 +18,13 @@ impl NarSignature {
             NiphasError::NarInfoParse(format!("signature missing ':' separator: '{s}'"))
         })?;
 
-        let sig_bytes = BASE64_STANDARD.decode(sig_b64).map_err(|e| {
-            NiphasError::NarInfoParse(format!("invalid base64 in signature: {e}"))
-        })?;
+        let sig_bytes = BASE64_STANDARD
+            .decode(sig_b64)
+            .map_err(|e| NiphasError::NarInfoParse(format!("invalid base64 in signature: {e}")))?;
 
-        let sig_array: [u8; 64] = sig_bytes.try_into().map_err(|_| {
-            NiphasError::NarInfoParse("signature must be 64 bytes".into())
-        })?;
+        let sig_array: [u8; 64] = sig_bytes
+            .try_into()
+            .map_err(|_| NiphasError::NarInfoParse("signature must be 64 bytes".into()))?;
 
         let signature = Signature::from_bytes(&sig_array);
 
@@ -83,10 +83,10 @@ pub fn verify_narinfo(
 
     for sig in signatures {
         for key in trusted_keys {
-            if sig.key_name == key.name {
-                if key.pubkey.verify(fingerprint_bytes, &sig.signature).is_ok() {
-                    return Ok(());
-                }
+            if sig.key_name == key.name
+                && key.pubkey.verify(fingerprint_bytes, &sig.signature).is_ok()
+            {
+                return Ok(());
             }
         }
     }

@@ -25,7 +25,7 @@ pub fn to_nix_base32(input: &[u8]) -> String {
     if input.is_empty() {
         return String::new();
     }
-    let len = (input.len() * 8 + 4) / 5; // ceil(bits / 5)
+    let len = (input.len() * 8).div_ceil(5);
     let mut out = String::with_capacity(len);
 
     for n in (0..len).rev() {

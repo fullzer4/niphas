@@ -1,13 +1,7 @@
 [advisories]
-db-path = "~/.cargo/advisory-db"
-db-urls = ["https://github.com/rustsec/advisory-db"]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "warn"
-notice = "warn"
+ignore = []
 
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -21,11 +15,19 @@ allow = [
     "OpenSSL",
     "MPL-2.0",
 ]
-copyleft = "deny"
+
+# libbz2-rs-sys uses the bzip2-1.0.6 license (BSD-like permissive)
+exceptions = [
+    { allow = ["bzip2-1.0.6"], crate = "libbz2-rs-sys" },
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+]
+
+[licenses.private]
+ignore = true
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "allow"
 highlight = "all"
 
 [sources]

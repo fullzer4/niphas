@@ -43,7 +43,7 @@ impl NarCache<CacheClient> {
 }
 
 impl<C: BinaryCacheClient> NarCache<C> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testutils"))]
     pub fn with_client(cache_dir: PathBuf, cache_client: C) -> Self {
         NarCache {
             cache_dir,
@@ -55,9 +55,7 @@ impl<C: BinaryCacheClient> NarCache<C> {
     /// Return the filesystem path for a given store path basename.
     pub fn path_for(&self, store_path: &str) -> String {
         // Strip /nix/store/ prefix if present.
-        let basename = store_path
-            .strip_prefix("/nix/store/")
-            .unwrap_or(store_path);
+        let basename = store_path.strip_prefix("/nix/store/").unwrap_or(store_path);
         self.cache_dir.join(basename).to_string_lossy().to_string()
     }
 
@@ -74,9 +72,7 @@ impl<C: BinaryCacheClient> NarCache<C> {
         _binary_cache_url: Option<&str>,
     ) -> Result<(), NiphasError> {
         for &path in closure_paths {
-            let basename = path
-                .strip_prefix("/nix/store/")
-                .unwrap_or(path);
+            let basename = path.strip_prefix("/nix/store/").unwrap_or(path);
 
             if self.is_cached(basename) {
                 debug!(basename, "already cached");
@@ -151,9 +147,8 @@ async fn fetch_and_extract(
 
     let cursor = tokio::io::BufReader::new(&decompressed[..]);
     let reader = NarReader::new(cursor);
-    let (node, nar_hash) = reader.parse().await.map_err(|e| {
+    let (node, nar_hash) = reader.parse().await.inspect_err(|_| {
         let _ = std::fs::remove_dir_all(&tmp_dir);
-        e
     })?;
 
     if nar_hash != narinfo.nar_hash {
@@ -200,14 +195,14 @@ async fn decompress_nar(narinfo: &NarInfo, data: &[u8]) -> Result<Vec<u8>, Nipha
 }
 
 /// Extract a NAR node tree to a filesystem directory.
-fn extract_node(
-    node: &niphas_core::nix::nar::NarNode,
-    path: &Path,
-) -> Result<(), NiphasError> {
+fn extract_node(node: &niphas_core::nix::nar::NarNode, path: &Path) -> Result<(), NiphasError> {
     use niphas_core::nix::nar::NarNode;
 
     match node {
-        NarNode::Regular { executable, contents } => {
+        NarNode::Regular {
+            executable,
+            contents,
+        } => {
             use std::os::unix::fs::PermissionsExt;
             std::fs::write(path, contents)?;
             let mode = if *executable { 0o555 } else { 0o444 };

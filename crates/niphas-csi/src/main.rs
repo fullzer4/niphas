@@ -1,22 +1,13 @@
-mod cache;
-mod identity;
-mod mount;
-mod node;
-
-use cache::NarCache;
-use identity::IdentityService;
 use niphas_core::config::NiphasConfig;
-use node::NodeService;
+use niphas_csi::cache::NarCache;
+use niphas_csi::csi;
+use niphas_csi::identity::IdentityService;
+use niphas_csi::node::NodeService;
 use std::sync::Arc;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 use tracing::info;
-
-/// Generated CSI protobuf types.
-pub mod csi {
-    tonic::include_proto!("csi.v1");
-}
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -55,8 +46,7 @@ async fn main() -> anyhow::Result<()> {
     Server::builder()
         .add_service(csi::identity_server::IdentityServer::new(IdentityService))
         .add_service(csi::node_server::NodeServer::new(NodeService::new(
-            node_id,
-            nar_cache,
+            node_id, nar_cache,
         )))
         .serve_with_incoming(stream)
         .await?;

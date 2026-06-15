@@ -136,7 +136,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[tokio::test]
     async fn test_invalid_input_body_shape() {
         let body = body_of(AppError::InvalidInput("bad field".into())).await;
         assert_eq!(body["error"], "InvalidInput");
@@ -159,8 +158,7 @@ mod tests {
         let err: AppError = NiphasError::ClosureResolution("fail".into()).into();
         assert!(matches!(err, AppError::ClosureResolutionFailed(_)));
 
-        let err: AppError =
-            NiphasError::Io(std::io::Error::new(std::io::ErrorKind::Other, "x")).into();
+        let err: AppError = NiphasError::Io(std::io::Error::other("x")).into();
         assert!(matches!(err, AppError::Internal(_)));
     }
 }

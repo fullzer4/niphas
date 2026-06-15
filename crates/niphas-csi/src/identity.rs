@@ -31,9 +31,7 @@ impl csi::identity_server::Identity for IdentityService {
         &self,
         _request: Request<csi::ProbeRequest>,
     ) -> Result<Response<csi::ProbeResponse>, Status> {
-        Ok(Response::new(csi::ProbeResponse {
-            ready: Some(true),
-        }))
+        Ok(Response::new(csi::ProbeResponse { ready: Some(true) }))
     }
 }
 
@@ -67,10 +65,7 @@ mod tests {
     #[tokio::test]
     async fn test_probe_ready() {
         let svc = IdentityService;
-        let resp = svc
-            .probe(Request::new(csi::ProbeRequest {}))
-            .await
-            .unwrap();
+        let resp = svc.probe(Request::new(csi::ProbeRequest {})).await.unwrap();
         assert_eq!(resp.into_inner().ready, Some(true));
     }
 }

@@ -20,13 +20,11 @@ use serde::{Deserialize, Serialize};
 )]
 #[serde(rename_all = "camelCase")]
 pub struct NiphasWorkloadSpec {
-
     /// Flake reference. E.g. `github:myorg/myapp`.
     pub flake_ref: String,
 
     /// Flake output attribute path. E.g. `packages.x86_64-linux.default`.
     pub attribute: String,
-
 
     /// Git revision to pin. Must be a 6-40 char hex string.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -39,7 +37,6 @@ pub struct NiphasWorkloadSpec {
     /// Override binary cache URL for this workload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary_cache: Option<String>,
-
 
     /// Override entrypoint. If omitted, resolved from `meta.mainProgram`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -57,11 +54,9 @@ pub struct NiphasWorkloadSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<ContainerPort>>,
 
-
     /// CPU/memory requests and limits.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resources: Option<ResourceRequirements>,
-
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub liveness_probe: Option<Probe>,
@@ -71,7 +66,6 @@ pub struct NiphasWorkloadSpec {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub startup_probe: Option<Probe>,
-
 
     /// Additional node selector labels (merged with `niphas.io/store=true`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,7 +79,6 @@ pub struct NiphasWorkloadSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub affinity: Option<Affinity>,
 
-
     /// If set, the operator creates a Service with ownerReferences.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service: Option<NiphasServiceSpec>,
@@ -94,7 +87,6 @@ pub struct NiphasWorkloadSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ingress: Option<NiphasIngressSpec>,
 
-
     /// Additional K8s volumes (ConfigMaps, Secrets, etc.).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_volumes: Option<Vec<Volume>>,
@@ -102,7 +94,6 @@ pub struct NiphasWorkloadSpec {
     /// Mount points for extra volumes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extra_volume_mounts: Option<Vec<VolumeMount>>,
-
 
     /// If set, evaluate per-architecture. Uses `{arch}` template in `attribute`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

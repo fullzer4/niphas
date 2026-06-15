@@ -9,6 +9,7 @@ rust-version.workspace = true
 [features]
 default = []
 jemalloc = ["dep:tikv-jemallocator"]
+testutils = []
 
 [dependencies]
 niphas-core.workspace = true
@@ -30,6 +31,9 @@ tikv-jemallocator = { workspace = true, optional = true }
 
 [dev-dependencies]
 niphas-core = { workspace = true, features = ["testutils"] }
+niphas-csi = { path = ".", features = ["testutils"] }
+tonic.workspace = true
+tokio.workspace = true
 
 [build-dependencies]
 tonic-build.workspace = true
