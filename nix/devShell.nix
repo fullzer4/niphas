@@ -14,6 +14,7 @@
           pkgs.protobuf
           pkgs.clang
           pkgs.lld
+          pkgs.git
           pkgs.cargo-deny
           pkgs.cargo-nextest
           pkgs.cargo-watch
