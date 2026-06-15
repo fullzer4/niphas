@@ -2,7 +2,7 @@
 {
   perSystem = { pkgs, self', system, ... }:
     let
-      mkImage = { name, pkg, contents ? [], entrypoint }:
+      mkImage = { name, pkg, extraPaths ? [], entrypoint }:
         pkgs.dockerTools.buildLayeredImage {
           inherit name;
           tag = "dev";
@@ -10,7 +10,7 @@
             pkg
             pkgs.cacert
             pkgs.tzdata
-          ] ++ contents;
+          ] ++ extraPaths;
           config = {
             Entrypoint = [ entrypoint ];
             Env = [
@@ -31,14 +31,14 @@
         image-niphas-eval = mkImage {
           name = "ghcr.io/fullzer4/niphas-eval";
           pkg = self'.packages.niphas-eval;
-          contents = [ pkgs.nix pkgs.git ];
+          extraPaths = [ pkgs.nix pkgs.git ];
           entrypoint = "/bin/niphas-eval";
         };
 
         image-niphas-csi = mkImage {
           name = "ghcr.io/fullzer4/niphas-csi";
           pkg = self'.packages.niphas-csi;
-          contents = [ pkgs.util-linux ];
+          extraPaths = [ pkgs.util-linux ];
           entrypoint = "/bin/niphas-csi";
         };
 
