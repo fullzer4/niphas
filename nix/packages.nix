@@ -5,7 +5,7 @@
       rustToolchain = inputs.rust-overlay.packages.${system}.rust;
       craneLib = (inputs.crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-      src = craneLib.cleanCargoSource (craneLib.path ../..);
+      src = craneLib.cleanCargoSource (craneLib.path ./..);
 
       commonArgs = {
         inherit src;
