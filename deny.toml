@@ -1,4 +1,5 @@
 [advisories]
+git-fetch-with-cli = true
 ignore = []
 
 [licenses]
