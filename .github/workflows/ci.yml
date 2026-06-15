@@ -46,21 +46,31 @@ jobs:
       - uses: DeterminateSystems/magic-nix-cache-action@main
       - run: nix develop -c cargo nextest run --workspace --lib --bins
 
-  # ── Layer 2 (gates on ALL of layer 1) ──────────
-  integration:
-    name: "L2 · Integration"
+  # ── Layer 2 (all parallel, gates on layer 1) ───
+  eval-http:
+    name: "L2 · Eval HTTP"
     needs: [fmt, clippy, deny, unit]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix develop -c cargo nextest run --workspace --test '*'
+      - run: nix develop -c cargo nextest run -p niphas-eval --test '*'
+
+  csi-grpc:
+    name: "L2 · CSI gRPC"
+    needs: [fmt, clippy, deny, unit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix develop -c cargo nextest run -p niphas-csi --test '*'
 
   # ── Layer 3 (gates on layer 2) ─────────────────
-  e2e:
-    name: "L3 · E2E"
-    needs: [integration]
+  e2e-kind:
+    name: "L3 · E2E Kind"
+    needs: [eval-http, csi-grpc]
     runs-on: ubuntu-latest
     if: false  # placeholder — enable when container images exist
     steps:
