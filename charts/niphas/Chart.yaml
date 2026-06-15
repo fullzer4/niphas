@@ -1,0 +1,14 @@
+apiVersion: v2
+name: niphas
+description: Nix-native platform for Kubernetes
+version: 0.1.0
+appVersion: "0.1.0"
+type: application
+keywords:
+  - nix
+  - kubernetes
+  - operator
+  - csi
+home: https://github.com/fullzer4/niphas
+sources:
+  - https://github.com/fullzer4/niphas

@@ -6,6 +6,7 @@ members = [
     "crates/niphas-operator",
     "crates/niphas-csi",
     "crates/niphas-mesh",
+    "crates/niphas-e2e",
 ]
 
 [workspace.package]

@@ -72,12 +72,80 @@ jobs:
     name: "L3 · E2E Kind"
     needs: [eval-http, csi-grpc]
     runs-on: ubuntu-latest
-    if: false  # placeholder — enable when container images exist
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
+
+      # Build OCI images
+      - name: Build images
+        run: |
+          nix build .#image-niphas-operator -o result-operator
+          nix build .#image-niphas-eval -o result-eval
+          nix build .#image-niphas-csi -o result-csi
+          nix build .#image-niphas-runner -o result-runner
+          nix build .#image-niphas-mock-eval -o result-mock-eval
+
+      # Create kind cluster
       - uses: helm/kind-action@v1
         with:
           cluster_name: niphas-test
-      - run: nix develop -c cargo nextest run --workspace --test 'e2e_*'
+          config: hack/kind-config.yaml
+
+      # Load images into kind
+      - name: Load images into kind
+        run: |
+          kind load image-archive result-operator --name niphas-test
+          kind load image-archive result-eval --name niphas-test
+          kind load image-archive result-csi --name niphas-test
+          kind load image-archive result-runner --name niphas-test
+          kind load image-archive result-mock-eval --name niphas-test
+
+      # Label nodes for CSI
+      - name: Label nodes
+        run: kubectl label nodes --all niphas.io/store=true
+
+      # Verify CRD freshness
+      - name: Verify CRD freshness
+        run: |
+          nix develop -c cargo run --bin niphas-crd-gen 2>/dev/null | grep -v '^niphas devShell ready$' | diff charts/niphas/crds/niphasworkloads.yaml -
+
+      # Install Helm chart
+      - name: Install niphas
+        run: |
+          nix develop -c helm install niphas charts/niphas \
+            --namespace niphas-system \
+            --create-namespace \
+            --set operator.image.pullPolicy=Never \
+            --set operator.image.tag=dev \
+            --set eval.image.pullPolicy=Never \
+            --set eval.image.tag=dev \
+            --set csi.image.pullPolicy=Never \
+            --set csi.image.tag=dev \
+            --set runner.image.tag=dev
+
+      # Wait for rollout
+      - name: Wait for deployments
+        run: |
+          kubectl -n niphas-system rollout status deployment/niphas-operator --timeout=120s
+          kubectl -n niphas-system rollout status deployment/niphas-eval --timeout=120s
+          kubectl -n niphas-system rollout status daemonset/niphas-csi --timeout=120s
+
+      # Create e2e namespace
+      - name: Create e2e namespace
+        run: kubectl create namespace niphas-e2e
+
+      # Port-forward
+      - name: Port-forward services
+        run: |
+          kubectl -n niphas-system port-forward svc/niphas-eval 8443:8443 &
+          kubectl -n niphas-system port-forward deployment/niphas-operator 8080:8080 &
+          sleep 5
+
+      # Run e2e tests
+      - name: Run E2E tests
+        env:
+          OPERATOR_HEALTH_URL: http://localhost:8080/healthz
+          EVAL_HEALTH_URL: http://localhost:8443/healthz
+          E2E_NAMESPACE: niphas-e2e
+        run: nix develop -c cargo nextest run -p niphas-e2e --test '*'

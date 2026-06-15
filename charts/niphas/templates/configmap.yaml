@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: niphas-config
+  namespace: {{ include "niphas.namespace" . }}
+  labels:
+    {{- include "niphas.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    log_level: {{ .Values.config.logLevel | quote }}
+    binary_caches:
+      {{- range .Values.config.binaryCaches }}
+      - {{ . | quote }}
+      {{- end }}
+    allowed_flake_origins:
+      {{- range .Values.config.allowedFlakeOrigins }}
+      - {{ . | quote }}
+      {{- end }}
+    eval_webhook_url: {{ .Values.config.evalWebhookUrl | quote }}
+    health_port: {{ .Values.config.healthPort }}
+    eval_timeout: {{ .Values.config.evalTimeout | quote }}
+    cache:
+      path: {{ .Values.config.cache.path | quote }}
+      high_watermark: {{ .Values.config.cache.highWatermark }}
+      low_watermark: {{ .Values.config.cache.lowWatermark }}
+      gc_interval: {{ .Values.config.cache.gcInterval | quote }}

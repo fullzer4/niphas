@@ -1561,6 +1561,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "niphas-e2e"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "k8s-openapi",
+ "kube",
+ "niphas-core",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "niphas-eval"
 version = "0.1.0"
 dependencies = [
