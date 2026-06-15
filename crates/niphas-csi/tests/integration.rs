@@ -171,3 +171,90 @@ async fn node_unpublish_volume_missing_target_path_returns_invalid_argument() {
     assert_eq!(err.code(), tonic::Code::InvalidArgument);
     assert!(err.message().contains("target_path"));
 }
+
+#[tokio::test]
+async fn node_publish_volume_missing_store_path_returns_invalid_argument() {
+    let channel = spawn_grpc_server().await;
+    let mut client = csi::node_client::NodeClient::new(channel);
+
+    let mut ctx = std::collections::HashMap::new();
+    ctx.insert("closurePaths".into(), "abc123-hello".into());
+
+    let err = client
+        .node_publish_volume(Request::new(csi::NodePublishVolumeRequest {
+            volume_id: "vol-1".into(),
+            target_path: "/mnt/target".into(),
+            volume_context: ctx,
+            ..Default::default()
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(err.message().contains("storePath"));
+}
+
+#[tokio::test]
+async fn node_publish_volume_missing_closure_paths_returns_invalid_argument() {
+    let channel = spawn_grpc_server().await;
+    let mut client = csi::node_client::NodeClient::new(channel);
+
+    let mut ctx = std::collections::HashMap::new();
+    ctx.insert("storePath".into(), "/nix/store/abc123-hello".into());
+
+    let err = client
+        .node_publish_volume(Request::new(csi::NodePublishVolumeRequest {
+            volume_id: "vol-1".into(),
+            target_path: "/mnt/target".into(),
+            volume_context: ctx,
+            ..Default::default()
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code(), tonic::Code::InvalidArgument);
+    assert!(err.message().contains("closurePaths"));
+}
+
+#[tokio::test]
+async fn node_unpublish_volume_not_mounted_returns_ok() {
+    let channel = spawn_grpc_server().await;
+    let mut client = csi::node_client::NodeClient::new(channel);
+
+    let resp = client
+        .node_unpublish_volume(Request::new(csi::NodeUnpublishVolumeRequest {
+            volume_id: "vol-1".into(),
+            target_path: "/mnt/not-mounted".into(),
+        }))
+        .await
+        .unwrap();
+
+    // Idempotent: unpublish of non-mounted volume succeeds
+    let _ = resp.into_inner();
+}
+
+#[tokio::test]
+async fn node_get_capabilities_returns_empty() {
+    let channel = spawn_grpc_server().await;
+    let mut client = csi::node_client::NodeClient::new(channel);
+
+    let resp = client
+        .node_get_capabilities(Request::new(csi::NodeGetCapabilitiesRequest {}))
+        .await
+        .unwrap();
+
+    assert!(resp.into_inner().capabilities.is_empty());
+}
+
+#[tokio::test]
+async fn node_get_info_returns_node_id() {
+    let channel = spawn_grpc_server().await;
+    let mut client = csi::node_client::NodeClient::new(channel);
+
+    let resp = client
+        .node_get_info(Request::new(csi::NodeGetInfoRequest {}))
+        .await
+        .unwrap();
+
+    assert_eq!(resp.into_inner().node_id, "test-node");
+}

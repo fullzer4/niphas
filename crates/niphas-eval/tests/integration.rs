@@ -1,5 +1,6 @@
 use niphas_core::config::NiphasConfig;
 use niphas_eval::evaluator::Evaluator;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
@@ -59,7 +60,7 @@ async fn evaluate_flake_not_in_allowlist_returns_403() {
         .post(format!("{base}/evaluate"))
         .header("content-type", "application/json")
         .body(
-            serde_json::json!({
+            json!({
                 "flakeRef": "github:evil/repo",
                 "attribute": "packages.x86_64-linux.default"
             })
@@ -87,4 +88,65 @@ async fn evaluate_empty_body_returns_422() {
         .unwrap();
     // Missing required fields triggers Axum deserialization error (422)
     assert_eq!(resp.status(), 422);
+}
+
+#[tokio::test]
+async fn evaluate_injection_chars_returns_400() {
+    let base = spawn_app().await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{base}/evaluate"))
+        .header("content-type", "application/json")
+        .body(
+            json!({
+                "flakeRef": r#"github:myorg/app" ++ builtins.readFile /etc/shadow ++ ""#,
+                "attribute": "packages.x86_64-linux.default"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"], "InvalidInput");
+}
+
+#[tokio::test]
+async fn evaluate_allowed_flake_without_nix_returns_422() {
+    let base = spawn_app().await;
+    let client = reqwest::Client::new();
+    // Flake passes allowlist but nix eval subprocess will fail (no nix binary in test env)
+    let resp = client
+        .post(format!("{base}/evaluate"))
+        .header("content-type", "application/json")
+        .body(
+            json!({
+                "flakeRef": "github:myorg/app",
+                "attribute": "packages.x86_64-linux.default"
+            })
+            .to_string(),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 422);
+
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"], "EvalFailed");
+}
+
+#[tokio::test]
+async fn evaluate_wrong_content_type_returns_415() {
+    let base = spawn_app().await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{base}/evaluate"))
+        .header("content-type", "text/plain")
+        .body("not json")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 415);
 }
