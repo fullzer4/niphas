@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── Layer 1 (all parallel) ─────────────────────
+  fmt:
+    name: "L1 · Format"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix develop -c cargo fmt --check
+
+  clippy:
+    name: "L1 · Clippy"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix develop -c cargo clippy --workspace --all-targets -- -D warnings
+
+  deny:
+    name: "L1 · Deny"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix develop -c cargo deny check
+
+  unit:
+    name: "L1 · Unit Tests"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix develop -c cargo nextest run --workspace --lib --bins
+
+  # ── Layer 2 (gates on ALL of layer 1) ──────────
+  integration:
+    name: "L2 · Integration"
+    needs: [fmt, clippy, deny, unit]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix develop -c cargo nextest run --workspace --test '*'
+
+  # ── Layer 3 (gates on layer 2) ─────────────────
+  e2e:
+    name: "L3 · E2E"
+    needs: [integration]
+    runs-on: ubuntu-latest
+    if: false  # placeholder — enable when container images exist
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: niphas-test
+      - run: nix develop -c cargo nextest run --workspace --test 'e2e_*'

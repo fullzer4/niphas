@@ -24,16 +24,9 @@ pub struct NarReader<R> {
 /// A parsed NAR node.
 #[derive(Debug, PartialEq)]
 pub enum NarNode {
-    Regular {
-        executable: bool,
-        contents: Vec<u8>,
-    },
-    Symlink {
-        target: String,
-    },
-    Directory {
-        entries: Vec<NarEntry>,
-    },
+    Regular { executable: bool, contents: Vec<u8> },
+    Symlink { target: String },
+    Directory { entries: Vec<NarEntry> },
 }
 
 /// A directory entry in a NAR archive.
@@ -118,7 +111,6 @@ impl<R: AsyncRead + Unpin + Send> NarReader<R> {
         }
         Ok(())
     }
-
 
     /// Parse the entire NAR archive. Returns the root node and the NAR hash.
     pub async fn parse(mut self) -> Result<(NarNode, NixHash), NiphasError> {
@@ -247,8 +239,9 @@ impl<R: AsyncRead + Unpin + Send> NarReader<R> {
     /// Boxed to break the async recursion cycle (directory -> entry -> node -> directory).
     fn parse_node_inner(
         &mut self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<NarNode, NiphasError>> + Send + '_>>
-    {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<NarNode, NiphasError>> + Send + '_>,
+    > {
         Box::pin(async move {
             self.expect_str("(").await?;
             self.expect_str("type").await?;

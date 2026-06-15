@@ -79,7 +79,6 @@ impl StorePath {
     pub fn basename(&self) -> String {
         format!("{}-{}", self.hash_str(), self.name)
     }
-
 }
 
 impl fmt::Display for StorePath {
@@ -158,7 +157,8 @@ mod tests {
 
     #[test]
     fn test_hash_extraction() {
-        let sp = StorePath::parse("/nix/store/00bgd045z0d4icpbc2yyz4gx48ak44la-net-tools-2.10").unwrap();
+        let sp =
+            StorePath::parse("/nix/store/00bgd045z0d4icpbc2yyz4gx48ak44la-net-tools-2.10").unwrap();
         let hash = sp.hash_str();
         assert_eq!(hash.len(), 32);
         assert_eq!(hash, "00bgd045z0d4icpbc2yyz4gx48ak44la");

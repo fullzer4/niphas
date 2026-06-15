@@ -1,9 +1,9 @@
 use crate::error::AppError;
 use crate::evaluator::Evaluator;
-use niphas_core::eval::{EvalRequest, EvalResponse};
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
+use niphas_core::eval::{EvalRequest, EvalResponse};
 use std::sync::Arc;
 use tracing::debug;
 

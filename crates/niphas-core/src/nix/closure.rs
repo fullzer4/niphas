@@ -2,8 +2,8 @@ use crate::error::NiphasError;
 use crate::nix::cache_client::BinaryCacheClient;
 use crate::nix::narinfo::NarInfo;
 use crate::nix::store_path::StorePath;
-use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tracing::{debug, warn};
@@ -63,9 +63,7 @@ pub async fn resolve_closure<C: BinaryCacheClient + Clone>(
         }
 
         // Take up to `concurrency` items from queue
-        let batch: Vec<StorePath> = queue
-            .drain(..queue.len().min(concurrency))
-            .collect();
+        let batch: Vec<StorePath> = queue.drain(..queue.len().min(concurrency)).collect();
 
         let mut futures = FuturesUnordered::new();
 
@@ -257,10 +255,7 @@ mod tests {
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("failed to resolve"),
-            "unexpected error: {err}"
-        );
+        assert!(err.contains("failed to resolve"), "unexpected error: {err}");
     }
 
     #[tokio::test]

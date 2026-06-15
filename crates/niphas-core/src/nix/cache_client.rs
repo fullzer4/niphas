@@ -79,28 +79,22 @@ impl CacheClient {
 
                     if resp.status().as_u16() == 404 {
                         debug!(cache_url = %cache.url, "narinfo not found, trying next cache");
-                        last_err =
-                            Some(NiphasError::StorePathNotCached(store_path.to_string()));
+                        last_err = Some(NiphasError::StorePathNotCached(store_path.to_string()));
                         continue;
                     }
 
                     let status = resp.status();
                     warn!(cache_url = %cache.url, %status, "unexpected HTTP status for narinfo");
-                    last_err = Some(NiphasError::Cache(format!(
-                        "HTTP {status} from {url}"
-                    )));
+                    last_err = Some(NiphasError::Cache(format!("HTTP {status} from {url}")));
                 }
                 Err(e) => {
                     warn!(cache_url = %cache.url, error = %e, "failed to fetch narinfo");
-                    last_err =
-                        Some(NiphasError::Cache(format!("request failed: {e}")));
+                    last_err = Some(NiphasError::Cache(format!("request failed: {e}")));
                 }
             }
         }
 
-        Err(last_err.unwrap_or_else(|| {
-            NiphasError::Cache("no binary caches configured".into())
-        }))
+        Err(last_err.unwrap_or_else(|| NiphasError::Cache("no binary caches configured".into())))
     }
 
     /// Fetch the compressed NAR bytes for a narinfo.
@@ -113,11 +107,7 @@ impl CacheClient {
         let mut last_err = None;
 
         for cache in &self.caches {
-            let url = format!(
-                "{}/{}",
-                cache.url.trim_end_matches('/'),
-                narinfo.url
-            );
+            let url = format!("{}/{}", cache.url.trim_end_matches('/'), narinfo.url);
             debug!(url = %url, "fetching NAR");
 
             match self.http.get(&url).send().await {
@@ -137,15 +127,12 @@ impl CacheClient {
                 }
                 Err(e) => {
                     warn!(url = %url, error = %e, "failed to fetch NAR");
-                    last_err =
-                        Some(NiphasError::Cache(format!("NAR request failed: {e}")));
+                    last_err = Some(NiphasError::Cache(format!("NAR request failed: {e}")));
                 }
             }
         }
 
-        Err(last_err.unwrap_or_else(|| {
-            NiphasError::Cache("no binary caches configured".into())
-        }))
+        Err(last_err.unwrap_or_else(|| NiphasError::Cache("no binary caches configured".into())))
     }
 
     /// Fetch narinfo by hash string directly (32-char Nix-base32).
@@ -180,9 +167,7 @@ impl CacheClient {
             }
         }
 
-        Err(last_err.unwrap_or_else(|| {
-            NiphasError::Cache("no binary caches configured".into())
-        }))
+        Err(last_err.unwrap_or_else(|| NiphasError::Cache("no binary caches configured".into())))
     }
 }
 

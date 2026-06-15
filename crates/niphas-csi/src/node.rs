@@ -29,7 +29,7 @@ impl NodeService<CacheClient, RealMountOps> {
 }
 
 impl<C: BinaryCacheClient, M: MountOps> NodeService<C, M> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testutils"))]
     pub fn with_deps(node_id: String, cache: Arc<NarCache<C>>, mount: M) -> Self {
         NodeService {
             node_id,
@@ -69,13 +69,13 @@ impl<C: BinaryCacheClient + 'static, M: MountOps + 'static> csi::node_server::No
         // Extract volume context.
         let ctx = &req.volume_context;
 
-        let store_path = ctx.get("storePath").ok_or_else(|| {
-            Status::invalid_argument("volumeAttributes.storePath is required")
-        })?;
+        let store_path = ctx
+            .get("storePath")
+            .ok_or_else(|| Status::invalid_argument("volumeAttributes.storePath is required"))?;
 
-        let closure_paths_raw = ctx.get("closurePaths").ok_or_else(|| {
-            Status::invalid_argument("volumeAttributes.closurePaths is required")
-        })?;
+        let closure_paths_raw = ctx
+            .get("closurePaths")
+            .ok_or_else(|| Status::invalid_argument("volumeAttributes.closurePaths is required"))?;
 
         // closurePaths is comma-separated list of store path basenames.
         let closure_paths: Vec<&str> = closure_paths_raw
@@ -105,9 +105,7 @@ impl<C: BinaryCacheClient + 'static, M: MountOps + 'static> csi::node_server::No
             .await
         {
             error!(err = %e, "failed to fetch closure paths");
-            return Err(Status::unavailable(format!(
-                "failed to fetch closure: {e}"
-            )));
+            return Err(Status::unavailable(format!("failed to fetch closure: {e}")));
         }
 
         // Create target directory and bind mount.
@@ -269,14 +267,20 @@ mod tests {
 
         fn setup_target_dir(&self, _path: &str) -> io::Result<()> {
             if self.setup_fail {
-                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "fake setup fail"));
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "fake setup fail",
+                ));
             }
             Ok(())
         }
 
         fn bind_mount_readonly(&self, _source: &str, target: &str) -> io::Result<()> {
             if self.mount_fail {
-                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "fake mount fail"));
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "fake mount fail",
+                ));
             }
             self.mounted.lock().unwrap().insert(target.to_string());
             Ok(())
@@ -284,7 +288,10 @@ mod tests {
 
         fn unmount(&self, target: &str) -> io::Result<()> {
             if self.unmount_fail {
-                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "fake unmount fail"));
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "fake unmount fail",
+                ));
             }
             self.mounted.lock().unwrap().remove(target);
             Ok(())

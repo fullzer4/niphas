@@ -1,12 +1,5 @@
-mod allowlist;
-mod error;
-mod evaluator;
-mod handlers;
-
-use axum::routing::{get, post};
-use axum::Router;
-use evaluator::Evaluator;
 use niphas_core::config::NiphasConfig;
+use niphas_eval::evaluator::Evaluator;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tracing::info;
@@ -26,11 +19,7 @@ async fn main() -> anyhow::Result<()> {
     let evaluator = Arc::new(Evaluator::new(config)?);
     info!("evaluator initialized");
 
-    let app = Router::new()
-        .route("/evaluate", post(handlers::evaluate))
-        .route("/healthz", get(handlers::healthz))
-        .route("/readyz", get(handlers::readyz))
-        .with_state(evaluator);
+    let app = niphas_eval::app(evaluator);
 
     let addr = format!("0.0.0.0:{port}");
     let listener = TcpListener::bind(&addr).await?;

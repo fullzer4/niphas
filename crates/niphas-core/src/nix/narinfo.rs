@@ -110,9 +110,10 @@ impl NarInfo {
                     nar_hash = Some(NixHash::parse(value)?);
                 }
                 "NarSize" => {
-                    nar_size = Some(value.parse::<u64>().map_err(|e| {
-                        NiphasError::NarInfoParse(format!("invalid NarSize: {e}"))
-                    })?);
+                    nar_size =
+                        Some(value.parse::<u64>().map_err(|e| {
+                            NiphasError::NarInfoParse(format!("invalid NarSize: {e}"))
+                        })?);
                 }
                 "References" => {
                     if !value.is_empty() {
@@ -180,10 +181,7 @@ impl NarInfo {
 
         format!(
             "1;{};{};{};{}",
-            self.store_path,
-            self.nar_hash.to_string(),
-            self.nar_size,
-            refs_str
+            self.store_path, self.nar_hash, self.nar_size, refs_str
         )
     }
 }

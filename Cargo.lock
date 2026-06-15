@@ -1545,6 +1545,7 @@ dependencies = [
  "hostname",
  "libc",
  "niphas-core",
+ "niphas-csi",
  "prost 0.14.4",
  "prost-types",
  "serde",

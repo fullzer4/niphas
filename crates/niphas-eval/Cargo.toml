@@ -28,3 +28,5 @@ futures.workspace = true
 
 [dev-dependencies]
 http-body-util = "0.1"
+reqwest.workspace = true
+tokio.workspace = true

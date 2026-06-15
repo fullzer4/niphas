@@ -1,6 +1,6 @@
 use figment::{
-    providers::{Env, Format, Serialized, Yaml},
     Figment,
+    providers::{Env, Format, Serialized, Yaml},
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -28,10 +28,7 @@ pub struct NiphasConfig {
     pub allowed_uris: Vec<String>,
 
     /// Evaluation timeout.
-    #[serde(
-        default = "default_eval_timeout",
-        with = "humantime_serde"
-    )]
+    #[serde(default = "default_eval_timeout", with = "humantime_serde")]
     pub eval_timeout: Duration,
 
     /// Closure resolution settings.
@@ -75,10 +72,7 @@ pub struct ClosureResolutionConfig {
     pub concurrency: usize,
 
     /// Timeout for resolving the full closure.
-    #[serde(
-        default = "default_closure_timeout",
-        with = "humantime_serde"
-    )]
+    #[serde(default = "default_closure_timeout", with = "humantime_serde")]
     pub timeout: Duration,
 }
 
@@ -98,13 +92,9 @@ pub struct CacheStorageConfig {
     pub low_watermark_bytes: u64,
 
     /// GC scan interval.
-    #[serde(
-        default = "default_gc_interval",
-        with = "humantime_serde"
-    )]
+    #[serde(default = "default_gc_interval", with = "humantime_serde")]
     pub gc_interval: Duration,
 }
-
 
 fn default_log_level() -> String {
     "info".into()
@@ -195,6 +185,7 @@ impl NiphasConfig {
     /// 1. Environment variables prefixed with `NIPHAS_`
     /// 2. YAML config file at `path` (if provided)
     /// 3. Built-in defaults
+    #[allow(clippy::result_large_err)]
     pub fn load(path: Option<&str>) -> Result<Self, figment::Error> {
         let mut figment = Figment::from(Serialized::defaults(NiphasConfig::default()));
 
@@ -325,9 +316,12 @@ mod humantime_serde {
                 .map_err(|e| format!("invalid duration '{}': {}", s, e))
         } else {
             // Try parsing as raw seconds
-            s.parse::<u64>()
-                .map(Duration::from_secs)
-                .map_err(|_| format!("invalid duration '{}': expected format like '300s', '5m', '1h'", s))
+            s.parse::<u64>().map(Duration::from_secs).map_err(|_| {
+                format!(
+                    "invalid duration '{}': expected format like '300s', '5m', '1h'",
+                    s
+                )
+            })
         }
     }
 }
