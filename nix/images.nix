@@ -12,6 +12,14 @@
 
       runtimeLibPath = pkgs.lib.makeLibraryPath runtimeLibs;
 
+      # Nix configuration for eval container (single-user, no sandbox)
+      nixConf = pkgs.writeTextDir "etc/nix/nix.conf" ''
+        sandbox = false
+        experimental-features = nix-command flakes
+        accept-flake-config = false
+        filter-syscalls = false
+      '';
+
       mkImage = { name, pkg, extraPaths ? [], entrypoint }:
         pkgs.dockerTools.buildLayeredImage {
           inherit name;
@@ -42,7 +50,7 @@
         image-niphas-eval = mkImage {
           name = "ghcr.io/fullzer4/niphas-eval";
           pkg = self'.packages.niphas-eval;
-          extraPaths = [ pkgs.nix pkgs.git ];
+          extraPaths = [ pkgs.nix pkgs.git nixConf ];
           entrypoint = "/bin/niphas-eval";
         };
 
