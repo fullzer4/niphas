@@ -77,14 +77,9 @@ jobs:
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
-      # Build OCI images
+      # Build all OCI images in a single nix build (shared cargoArtifacts)
       - name: Build images
-        run: |
-          nix build .#image-niphas-operator -o result-operator
-          nix build .#image-niphas-eval -o result-eval
-          nix build .#image-niphas-csi -o result-csi
-          nix build .#image-niphas-runner -o result-runner
-          nix build .#image-niphas-mock-eval -o result-mock-eval
+        run: nix build .#all-images -o result-images
 
       # Create kind cluster
       - uses: helm/kind-action@v1
@@ -95,11 +90,11 @@ jobs:
       # Load images into kind
       - name: Load images into kind
         run: |
-          kind load image-archive result-operator --name niphas-test
-          kind load image-archive result-eval --name niphas-test
-          kind load image-archive result-csi --name niphas-test
-          kind load image-archive result-runner --name niphas-test
-          kind load image-archive result-mock-eval --name niphas-test
+          kind load image-archive result-images/operator.tar.gz --name niphas-test
+          kind load image-archive result-images/eval.tar.gz --name niphas-test
+          kind load image-archive result-images/csi.tar.gz --name niphas-test
+          kind load image-archive result-images/runner.tar.gz --name niphas-test
+          kind load image-archive result-images/mock-eval.tar.gz --name niphas-test
 
       # Label nodes for CSI
       - name: Label nodes

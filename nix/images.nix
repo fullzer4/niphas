@@ -62,6 +62,14 @@
           pkg = self'.packages.niphas-mock-eval;
           entrypoint = "/bin/niphas-mock-eval";
         };
+
+        all-images = pkgs.linkFarm "niphas-all-images" [
+          { name = "operator.tar.gz"; path = self'.packages.image-niphas-operator; }
+          { name = "eval.tar.gz"; path = self'.packages.image-niphas-eval; }
+          { name = "csi.tar.gz"; path = self'.packages.image-niphas-csi; }
+          { name = "runner.tar.gz"; path = self'.packages.image-niphas-runner; }
+          { name = "mock-eval.tar.gz"; path = self'.packages.image-niphas-mock-eval; }
+        ];
       };
     };
 }
