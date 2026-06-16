@@ -14,6 +14,8 @@
         nativeBuildInputs = [
           pkgs.pkg-config
           pkgs.protobuf
+          pkgs.clang
+          pkgs.lld
         ];
 
         buildInputs = [
