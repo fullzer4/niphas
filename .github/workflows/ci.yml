@@ -127,6 +127,23 @@ jobs:
           kubectl -n niphas-system rollout status deployment/niphas-eval --timeout=120s
           kubectl -n niphas-system rollout status daemonset/niphas-csi --timeout=120s
 
+      # Debug on failure
+      - name: Debug pods on failure
+        if: failure()
+        run: |
+          echo "=== Pod status ==="
+          kubectl -n niphas-system get pods -o wide
+          echo "=== Pod descriptions ==="
+          kubectl -n niphas-system describe pods
+          echo "=== CSI logs ==="
+          kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-csi --all-containers --tail=50 || true
+          echo "=== Operator logs ==="
+          kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-operator --tail=50 || true
+          echo "=== Eval logs ==="
+          kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-eval --tail=50 || true
+          echo "=== Events ==="
+          kubectl -n niphas-system get events --sort-by=.lastTimestamp
+
       # Create e2e namespace
       - name: Create e2e namespace
         run: kubectl create namespace niphas-e2e
