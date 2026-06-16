@@ -2,6 +2,14 @@
 {
   perSystem = { pkgs, self', system, ... }:
     let
+      # Runtime shared libraries needed by all Rust binaries
+      runtimeLibs = [
+        pkgs.openssl.out
+        pkgs.zstd.out
+        pkgs.xz.out
+        pkgs.bzip2.out
+      ];
+
       mkImage = { name, pkg, extraPaths ? [], entrypoint }:
         pkgs.dockerTools.buildLayeredImage {
           inherit name;
@@ -10,7 +18,7 @@
             pkg
             pkgs.cacert
             pkgs.tzdata
-          ] ++ extraPaths;
+          ] ++ runtimeLibs ++ extraPaths;
           config = {
             Entrypoint = [ entrypoint ];
             Env = [
