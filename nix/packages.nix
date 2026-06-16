@@ -5,10 +5,18 @@
       rustToolchain = inputs.rust-overlay.packages.${system}.rust;
       craneLib = (inputs.crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-      src = craneLib.cleanCargoSource self;
+      protoFilter = path: _type: builtins.match ".*\.proto$" path != null;
+      srcFilter = path: type:
+        (protoFilter path type) || (craneLib.filterCargoSources path type);
+
+      src = pkgs.lib.cleanSourceWith {
+        src = self;
+        filter = srcFilter;
+      };
 
       commonArgs = {
         inherit src;
+        pname = "niphas";
         strictDeps = true;
 
         nativeBuildInputs = [
