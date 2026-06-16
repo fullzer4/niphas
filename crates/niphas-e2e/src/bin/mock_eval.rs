@@ -1,8 +1,16 @@
-use axum::{Json, Router, routing::get, routing::post};
+use axum::{Json, Router, http::StatusCode, response::IntoResponse, routing::get, routing::post};
 use niphas_core::eval::{EvalRequest, EvalResponse};
 use std::net::SocketAddr;
 
-async fn evaluate(Json(req): Json<EvalRequest>) -> Json<EvalResponse> {
+async fn evaluate(Json(req): Json<EvalRequest>) -> impl IntoResponse {
+    // Simulate failure for flake refs containing "nonexistent" or "does-not-exist"
+    if req.flake_ref.contains("nonexistent") || req.flake_ref.contains("does-not-exist") {
+        return Err((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!("evaluation failed: flake '{}' not found", req.flake_ref),
+        ));
+    }
+
     let store_path = format!(
         "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-{}",
         req.flake_ref.split(':').next_back().unwrap_or("mock")
@@ -14,12 +22,12 @@ async fn evaluate(Json(req): Json<EvalRequest>) -> Json<EvalResponse> {
         .unwrap_or("mock-app")
         .to_string();
 
-    Json(EvalResponse {
+    Ok(Json(EvalResponse {
         store_path: store_path.clone(),
         name: name.clone(),
         main_program: Some(name),
         closure_paths: vec![store_path],
-    })
+    }))
 }
 
 async fn healthz() -> &'static str {
