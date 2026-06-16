@@ -1,15 +1,11 @@
 apiVersion: niphas.io/v1alpha1
 kind: NiphasWorkload
 metadata:
-  name: test-darkhttpd
+  name: test-app
   namespace: niphas-e2e
 spec:
-  flakeRef: github:nixos/nixpkgs
-  attribute: legacyPackages.x86_64-linux.darkhttpd
-  args:
-    - "/tmp"
-    - "--port"
-    - "8080"
+  flakeRef: github:fullzer4/niphas?dir=hack/test-app
+  attribute: packages.x86_64-linux.default
   replicas: 1
   ports:
     - name: http
@@ -25,12 +21,12 @@ spec:
   readinessProbe:
     tcpSocket:
       port: 8080
-    initialDelaySeconds: 5
-    periodSeconds: 5
+    initialDelaySeconds: 3
+    periodSeconds: 3
   resources:
     requests:
       cpu: 50m
       memory: 32Mi
     limits:
       cpu: 200m
-      memory: 128Mi
+      memory: 64Mi
