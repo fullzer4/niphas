@@ -10,6 +10,8 @@
         pkgs.bzip2.out
       ];
 
+      runtimeLibPath = pkgs.lib.makeLibraryPath runtimeLibs;
+
       mkImage = { name, pkg, extraPaths ? [], entrypoint }:
         pkgs.dockerTools.buildLayeredImage {
           inherit name;
@@ -24,6 +26,7 @@
             Env = [
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
               "TZDIR=${pkgs.tzdata}/share/zoneinfo"
+              "LD_LIBRARY_PATH=${runtimeLibPath}"
             ];
           };
         };
