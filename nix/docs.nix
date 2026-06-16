@@ -2,28 +2,14 @@
 {
   perSystem = { pkgs, ... }:
     let
-      docs-src = pkgs.stdenvNoCC.mkDerivation {
-        name = "niphas-docs-src";
+      docs-site = pkgs.stdenvNoCC.mkDerivation {
+        name = "niphas-docs";
         src = self;
-        phases = [ "unpackPhase" "installPhase" ];
+        nativeBuildInputs = [ pkgs.mdbook ];
+        buildPhase = "mdbook build docs";
         installPhase = ''
           mkdir -p $out
-          # Copy docs directory (resolving symlinks)
-          cp -rL docs/. $out/
-        '';
-      };
-
-      docs-site = pkgs.buildNpmPackage {
-        pname = "niphas-docs";
-        version = "0.1.0";
-        src = docs-src;
-        npmDepsHash = "sha256-WGOob022dZ0sEgEtY3WJAeVs04LQ/FlFSpA/9B7MHwU=";
-        buildPhase = ''
-          npx vitepress build
-        '';
-        installPhase = ''
-          mkdir -p $out
-          cp -r .vitepress/dist/* $out/
+          cp -r docs/book/* $out/
         '';
       };
     in
@@ -34,7 +20,7 @@
           runtimeInputs = [ pkgs.darkhttpd ];
           text = ''
             PORT="''${PORT:-8080}"
-            echo "niphas docs → http://localhost:$PORT"
+            echo "niphas docs: http://localhost:$PORT"
             exec darkhttpd ${docs-site} --port "$PORT"
           '';
         };

@@ -1,0 +1,14 @@
+[book]
+title = "niphas"
+description = "νιφάς — Nix-native platform for Kubernetes"
+authors = ["fullzer4"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+default-theme = "ayu"
+preferred-dark-theme = "ayu"
+git-repository-url = "https://github.com/fullzer4/niphas"

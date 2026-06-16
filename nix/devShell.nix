@@ -21,7 +21,7 @@
           pkgs.kubectl
           pkgs.kubernetes-helm
           pkgs.kind
-          pkgs.nodejs
+          pkgs.mdbook
         ];
 
         buildInputs = [

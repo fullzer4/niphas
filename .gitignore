@@ -5,6 +5,4 @@ result-*
 *.swp
 *.swo
 *~
-docs/.vitepress/dist/
-docs/.vitepress/cache/
-docs/node_modules/
+docs/book/
