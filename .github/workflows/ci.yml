@@ -113,6 +113,7 @@ jobs:
             --create-namespace \
             --set operator.image.pullPolicy=Never \
             --set operator.image.tag=dev \
+            --set eval.image.repository=ghcr.io/fullzer4/niphas-mock-eval \
             --set eval.image.pullPolicy=Never \
             --set eval.image.tag=dev \
             --set csi.image.pullPolicy=Never \
