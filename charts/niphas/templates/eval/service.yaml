@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: niphas-eval
+  namespace: {{ include "niphas.namespace" . }}
+  labels:
+    {{- include "niphas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: eval
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.eval.servicePort }}
+      targetPort: {{ .Values.eval.targetPort }}
+      protocol: TCP
+  selector:
+    {{- include "niphas.selectorLabels" (dict "name" "niphas-eval" "root" .) | nindent 4 }}

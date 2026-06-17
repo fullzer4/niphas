@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: niphas-operator
+  namespace: {{ include "niphas.namespace" . }}
+  labels:
+    {{- include "niphas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+    {{- include "niphas.selectorLabels" (dict "name" "niphas-operator" "root" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.operator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "niphas.selectorLabels" (dict "name" "niphas-operator" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "niphas.labels" . | nindent 8 }}
+        app.kubernetes.io/component: operator
+        {{- include "niphas.selectorLabels" (dict "name" "niphas-operator" "root" .) | nindent 8 }}
+    spec:
+      serviceAccountName: niphas-operator
+      containers:
+        - name: operator
+          image: "{{ .Values.operator.image.repository }}:{{ .Values.operator.image.tag }}"
+          imagePullPolicy: {{ .Values.operator.image.pullPolicy }}
+          ports:
+            - name: health
+              containerPort: {{ .Values.config.healthPort }}
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NIPHAS_CONFIG
+              value: /etc/niphas/config.yaml
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.operator.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/niphas
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: niphas-config

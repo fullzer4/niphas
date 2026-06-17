@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: niphas-csi
+  namespace: {{ include "niphas.namespace" . }}
+  labels:
+    {{- include "niphas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: csi
+    {{- include "niphas.selectorLabels" (dict "name" "niphas-csi" "root" .) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "niphas.selectorLabels" (dict "name" "niphas-csi" "root" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "niphas.labels" . | nindent 8 }}
+        app.kubernetes.io/component: csi
+        {{- include "niphas.selectorLabels" (dict "name" "niphas-csi" "root" .) | nindent 8 }}
+    spec:
+      nodeSelector:
+        {{- toYaml .Values.csi.nodeSelector | nindent 8 }}
+      containers:
+        - name: csi-driver
+          image: "{{ .Values.csi.image.repository }}:{{ .Values.csi.image.tag }}"
+          imagePullPolicy: {{ .Values.csi.image.pullPolicy }}
+          args:
+            - "--endpoint=unix:///csi/csi.sock"
+          env:
+            - name: NIPHAS_CONFIG
+              value: /etc/niphas/config.yaml
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+          ports:
+            - name: healthz
+              containerPort: 9808
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.csi.resources | nindent 12 }}
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: pods-mount-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: Bidirectional
+            - name: cache
+              mountPath: /var/lib/niphas/cache
+            - name: config
+              mountPath: /etc/niphas
+              readOnly: true
+        - name: node-driver-registrar
+          image: "{{ .Values.csi.registrar.image.repository }}:{{ .Values.csi.registrar.image.tag }}"
+          args:
+            - "--csi-address=/csi/csi.sock"
+            - "--kubelet-registration-path=/var/lib/kubelet/plugins/niphas.io.csi/csi.sock"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+        - name: liveness-probe
+          image: "{{ .Values.csi.liveness.image.repository }}:{{ .Values.csi.liveness.image.tag }}"
+          args:
+            - "--csi-address=/csi/csi.sock"
+            - "--health-port=9808"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/niphas.io.csi
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry
+            type: Directory
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: Directory
+        - name: cache
+          hostPath:
+            path: /var/lib/niphas/cache
+            type: DirectoryOrCreate
+        - name: config
+          configMap:
+            name: niphas-config

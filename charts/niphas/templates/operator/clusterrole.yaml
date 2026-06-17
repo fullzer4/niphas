@@ -1,0 +1,39 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: niphas-operator
+  labels:
+    {{- include "niphas.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+rules:
+  # NiphasWorkload CRD
+  - apiGroups: ["niphas.io"]
+    resources: ["niphasworkloads"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["niphas.io"]
+    resources: ["niphasworkloads/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["niphas.io"]
+    resources: ["niphasworkloads/finalizers"]
+    verbs: ["update", "patch"]
+  # Child resources
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Events
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Pod status (for ready replica counting)
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]

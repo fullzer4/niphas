@@ -1,0 +1,74 @@
+namespace: niphas-system
+
+operator:
+  image:
+    repository: ghcr.io/fullzer4/niphas-operator
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+eval:
+  image:
+    repository: ghcr.io/fullzer4/niphas-eval
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  servicePort: 8443
+  targetPort: 8080
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+csi:
+  image:
+    repository: ghcr.io/fullzer4/niphas-csi
+    tag: latest
+    pullPolicy: IfNotPresent
+  nodeSelector:
+    niphas.io/store: "true"
+  registrar:
+    image:
+      repository: registry.k8s.io/sig-storage/csi-node-driver-registrar
+      tag: v2.13.0
+  liveness:
+    image:
+      repository: registry.k8s.io/sig-storage/livenessprobe
+      tag: v2.14.0
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+runner:
+  image:
+    repository: ghcr.io/fullzer4/niphas-runner
+    tag: latest
+
+config:
+  logLevel: info
+  binaryCaches:
+    - https://cache.nixos.org
+  allowedFlakeOrigins:
+    - "github:*"
+  evalWebhookUrl: http://niphas-eval.niphas-system.svc:8443
+  healthPort: 8080
+  evalTimeout: 300s
+  cache:
+    path: /var/lib/niphas/cache
+    highWatermark: 15000000000
+    lowWatermark: 10000000000
+    gcInterval: 300s
