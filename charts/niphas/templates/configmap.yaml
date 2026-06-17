@@ -7,20 +7,20 @@ metadata:
     {{- include "niphas.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    log_level: {{ .Values.config.logLevel | quote }}
-    binary_caches:
+    logLevel: {{ .Values.config.logLevel | quote }}
+    binaryCaches:
       {{- range .Values.config.binaryCaches }}
-      - {{ . | quote }}
+      - url: {{ . | quote }}
       {{- end }}
-    allowed_flake_origins:
+    allowedFlakeOrigins:
       {{- range .Values.config.allowedFlakeOrigins }}
       - {{ . | quote }}
       {{- end }}
-    eval_webhook_url: {{ .Values.config.evalWebhookUrl | quote }}
-    health_port: {{ .Values.config.healthPort }}
-    eval_timeout: {{ .Values.config.evalTimeout | quote }}
+    evalWebhookUrl: {{ .Values.config.evalWebhookUrl | quote }}
+    healthPort: {{ .Values.config.healthPort }}
+    evalTimeout: {{ .Values.config.evalTimeout | quote }}
     cache:
       path: {{ .Values.config.cache.path | quote }}
-      high_watermark: {{ .Values.config.cache.highWatermark }}
-      low_watermark: {{ .Values.config.cache.lowWatermark }}
-      gc_interval: {{ .Values.config.cache.gcInterval | quote }}
+      highWatermarkBytes: {{ .Values.config.cache.highWatermark }}
+      lowWatermarkBytes: {{ .Values.config.cache.lowWatermark }}
+      gcInterval: {{ .Values.config.cache.gcInterval | quote }}
