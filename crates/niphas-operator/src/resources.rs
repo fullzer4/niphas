@@ -512,8 +512,7 @@ mod tests {
             .unwrap();
         assert_eq!(volumes[0]["csi"]["driver"], "niphas.io.csi");
         assert_eq!(
-            volumes[0]["csi"]["volumeAttributes"]["storePath"],
-            "/nix/store/abc123-myapp-1.0.0",
+            volumes[0]["csi"]["volumeAttributes"]["storePath"], "/nix/store/abc123-myapp-1.0.0",
             "storePath must be passed in volumeAttributes"
         );
         assert_eq!(

@@ -170,13 +170,7 @@ async fn test_workload_full_pipeline() -> Result<()> {
         .context("failed to create test workload")?;
 
     // Wait for Running phase (eval + CSI fetch + pod startup)
-    let result = wait_for_phase(
-        &api,
-        name,
-        WorkloadPhase::Running,
-        Duration::from_secs(180),
-    )
-    .await;
+    let result = wait_for_phase(&api, name, WorkloadPhase::Running, Duration::from_secs(180)).await;
 
     let wl = result.context("workload did not reach Running phase")?;
     let status = wl.status.expect("status should be set");
