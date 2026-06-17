@@ -183,6 +183,7 @@ pub(crate) fn build_deployment(
         "csi": {
             "driver": "niphas.io.csi",
             "volumeAttributes": {
+                "storePath": eval_result.store_path,
                 "closurePaths": closure_csv
             }
         }
@@ -510,6 +511,15 @@ mod tests {
             .as_array()
             .unwrap();
         assert_eq!(volumes[0]["csi"]["driver"], "niphas.io.csi");
+        assert_eq!(
+            volumes[0]["csi"]["volumeAttributes"]["storePath"],
+            "/nix/store/abc123-myapp-1.0.0",
+            "storePath must be passed in volumeAttributes"
+        );
+        assert_eq!(
+            volumes[0]["csi"]["volumeAttributes"]["closurePaths"],
+            "/nix/store/abc123-myapp-1.0.0,/nix/store/def456-glibc-2.37"
+        );
 
         // Check nodeSelector includes niphas.io/store=true
         let ns = &dep["spec"]["template"]["spec"]["nodeSelector"];

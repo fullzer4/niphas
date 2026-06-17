@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, bail};
+use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::{
     Api, Client,
-    api::{DeleteParams, PostParams},
+    api::{DeleteParams, ListParams, PostParams},
 };
 use niphas_core::crd::{NiphasWorkload, WorkloadPhase};
 use std::time::Duration;
@@ -48,7 +49,7 @@ async fn wait_for_deletion(api: &Api<NiphasWorkload>, name: &str, timeout: Durat
     }
 }
 
-fn test_workload(name: &str, flake_ref: &str) -> NiphasWorkload {
+fn test_workload(name: &str, flake_ref: &str, attribute: &str) -> NiphasWorkload {
     serde_json::from_value(serde_json::json!({
         "apiVersion": "niphas.io/v1alpha1",
         "kind": "NiphasWorkload",
@@ -57,7 +58,8 @@ fn test_workload(name: &str, flake_ref: &str) -> NiphasWorkload {
         },
         "spec": {
             "flakeRef": flake_ref,
-            "attribute": "packages.x86_64-linux.default",
+            "attribute": attribute,
+            "command": ["/bin/sleep", "3600"],
         }
     }))
     .expect("valid test workload")
@@ -115,7 +117,11 @@ async fn test_workload_eval_failure_sets_failed() -> Result<()> {
     let api: Api<NiphasWorkload> = Api::namespaced(client, &ns);
 
     let name = "e2e-fail-test";
-    let wl = test_workload(name, "github:nonexistent/does-not-exist-12345");
+    let wl = test_workload(
+        name,
+        "github:nonexistent/does-not-exist-12345",
+        "packages.x86_64-linux.default",
+    );
 
     // Clean up if leftover from previous run
     let _ = api.delete(name, &DeleteParams::default()).await;
@@ -143,13 +149,110 @@ async fn test_workload_eval_failure_sets_failed() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_workload_full_pipeline() -> Result<()> {
+    let client = Client::try_default().await?;
+    let ns = std::env::var("E2E_NAMESPACE").unwrap_or_else(|_| "niphas-e2e".to_string());
+    let api: Api<NiphasWorkload> = Api::namespaced(client.clone(), &ns);
+
+    let name = "e2e-pipeline-test";
+    let wl = test_workload(
+        name,
+        "github:NixOS/nixpkgs",
+        "legacyPackages.x86_64-linux.hello",
+    );
+
+    // Clean up if leftover from previous run
+    let _ = api.delete(name, &DeleteParams::default()).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+
+    api.create(&PostParams::default(), &wl)
+        .await
+        .context("failed to create test workload")?;
+
+    // Wait for Running phase (eval + CSI fetch + pod startup)
+    let result = wait_for_phase(
+        &api,
+        name,
+        WorkloadPhase::Running,
+        Duration::from_secs(180),
+    )
+    .await;
+
+    let wl = result.context("workload did not reach Running phase")?;
+    let status = wl.status.expect("status should be set");
+
+    // Verify store_path starts with /nix/store/
+    let store_path = status
+        .store_path
+        .as_ref()
+        .expect("store_path should be set after successful eval");
+    assert!(
+        store_path.starts_with("/nix/store/"),
+        "store_path should start with /nix/store/, got: {store_path}"
+    );
+
+    // Verify closure_paths has more than 1 path (hello + glibc + etc)
+    let closure_paths = status
+        .closure_paths
+        .as_ref()
+        .expect("closure_paths should be set");
+    assert!(
+        closure_paths.len() > 1,
+        "closure should contain multiple paths (hello + deps), got: {closure_paths:?}"
+    );
+
+    // Verify Evaluated condition is True
+    if let Some(conditions) = &status.conditions {
+        let eval_cond = conditions
+            .iter()
+            .find(|c| c.type_ == "Evaluated")
+            .expect("Evaluated condition should exist");
+        assert_eq!(
+            eval_cond.status,
+            niphas_core::crd::ConditionStatus::True,
+            "Evaluated condition should be True"
+        );
+    }
+
+    // Verify operator created a child Deployment with ready replicas
+    let deployments: Api<Deployment> = Api::namespaced(client, &ns);
+    let lp = ListParams::default().labels(&format!("niphas.io/workload={name}"));
+    let dep_list = deployments
+        .list(&lp)
+        .await
+        .context("failed to list child deployments")?;
+    assert_eq!(
+        dep_list.items.len(),
+        1,
+        "operator should have created exactly one child Deployment"
+    );
+    let dep_status = dep_list.items[0]
+        .status
+        .as_ref()
+        .expect("deployment should have status");
+    assert!(
+        dep_status.ready_replicas.unwrap_or(0) > 0,
+        "deployment should have at least one ready replica"
+    );
+
+    // Cleanup
+    let _ = api.delete(name, &DeleteParams::default()).await;
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_workload_deletion_cleanup() -> Result<()> {
     let client = Client::try_default().await?;
     let ns = std::env::var("E2E_NAMESPACE").unwrap_or_else(|_| "niphas-e2e".to_string());
     let api: Api<NiphasWorkload> = Api::namespaced(client, &ns);
 
     let name = "e2e-delete-test";
-    let wl = test_workload(name, "github:nixos/nixpkgs");
+    let wl = test_workload(
+        name,
+        "github:NixOS/nixpkgs",
+        "legacyPackages.x86_64-linux.hello",
+    );
 
     // Clean up if leftover
     let _ = api.delete(name, &DeleteParams::default()).await;

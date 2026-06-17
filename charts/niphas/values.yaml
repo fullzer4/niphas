@@ -60,21 +60,11 @@ runner:
 
 docs:
   enabled: false
-  image:
-    repository: ghcr.io/fullzer4/niphas-docs
-    tag: latest
-    pullPolicy: IfNotPresent
+  flakeRef: "github:NixOS/nixpkgs"
+  attribute: "legacyPackages.x86_64-linux.hello"
   replicas: 1
   service:
-    type: ClusterIP
     port: 80
-  resources:
-    requests:
-      cpu: 10m
-      memory: 16Mi
-    limits:
-      cpu: 100m
-      memory: 64Mi
 
 config:
   logLevel: info

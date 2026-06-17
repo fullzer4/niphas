@@ -1,0 +1,17 @@
+{{- if .Values.docs.enabled }}
+apiVersion: niphas.io/v1alpha1
+kind: NiphasWorkload
+metadata:
+  name: niphas-docs
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: niphas-docs
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  flakeRef: {{ .Values.docs.flakeRef | quote }}
+  attribute: {{ .Values.docs.attribute | quote }}
+  replicas: {{ .Values.docs.replicas }}
+  command:
+    - /bin/sleep
+    - "3600"
+{{- end }}

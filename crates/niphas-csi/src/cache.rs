@@ -52,6 +52,11 @@ impl<C: BinaryCacheClient> NarCache<C> {
         }
     }
 
+    /// Return the cache directory path (used as the bind mount source for /nix/store).
+    pub fn store_dir(&self) -> &Path {
+        &self.cache_dir
+    }
+
     /// Return the filesystem path for a given store path basename.
     pub fn path_for(&self, store_path: &str) -> String {
         // Strip /nix/store/ prefix if present.

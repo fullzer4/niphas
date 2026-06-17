@@ -94,8 +94,6 @@ jobs:
           kind load image-archive result-images/eval.tar.gz --name niphas-test
           kind load image-archive result-images/csi.tar.gz --name niphas-test
           kind load image-archive result-images/runner.tar.gz --name niphas-test
-          kind load image-archive result-images/mock-eval.tar.gz --name niphas-test
-          kind load image-archive result-images/docs.tar.gz --name niphas-test
 
       # Label nodes for CSI
       - name: Label nodes
@@ -114,23 +112,39 @@ jobs:
             --create-namespace \
             --set operator.image.pullPolicy=Never \
             --set operator.image.tag=dev \
-            --set eval.image.repository=ghcr.io/fullzer4/niphas-mock-eval \
             --set eval.image.pullPolicy=Never \
             --set eval.image.tag=dev \
             --set csi.image.pullPolicy=Never \
             --set csi.image.tag=dev \
             --set runner.image.tag=dev \
             --set docs.enabled=true \
-            --set docs.image.pullPolicy=Never \
-            --set docs.image.tag=dev
+            --set docs.flakeRef=github:NixOS/nixpkgs \
+            --set docs.attribute=legacyPackages.x86_64-linux.hello
 
       # Wait for rollout
-      - name: Wait for deployments
+      - name: Wait for control plane
         run: |
           kubectl -n niphas-system rollout status deployment/niphas-operator --timeout=120s
           kubectl -n niphas-system rollout status deployment/niphas-eval --timeout=120s
           kubectl -n niphas-system rollout status daemonset/niphas-csi --timeout=120s
-          kubectl -n niphas-system rollout status deployment/niphas-docs --timeout=120s
+
+      # Wait for docs NiphasWorkload to reach Running (eval + CSI fetch + pod startup)
+      - name: Wait for docs workload running
+        run: |
+          echo "Waiting for NiphasWorkload niphas-docs to reach Running phase..."
+          for i in $(seq 1 90); do
+            PHASE=$(kubectl -n niphas-system get niphasworkload niphas-docs -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+            echo "  attempt $i: phase=$PHASE"
+            if [ "$PHASE" = "Running" ]; then
+              echo "NiphasWorkload niphas-docs reached phase: Running"
+              kubectl -n niphas-system get niphasworkload niphas-docs -o yaml
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "FAIL: NiphasWorkload niphas-docs did not reach Running"
+          kubectl -n niphas-system get niphasworkload niphas-docs -o yaml || true
+          exit 1
 
       # Debug on failure
       - name: Debug pods on failure
@@ -146,8 +160,10 @@ jobs:
           kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-operator --tail=50 || true
           echo "=== Eval logs ==="
           kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-eval --tail=50 || true
-          echo "=== Docs logs ==="
-          kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-docs --tail=50 || true
+          echo "=== Docs workload ==="
+          kubectl -n niphas-system get niphasworkload niphas-docs -o yaml || true
+          echo "=== Docs child deployment ==="
+          kubectl -n niphas-system get deployment -l niphas.io/workload=niphas-docs -o yaml || true
           echo "=== Events ==="
           kubectl -n niphas-system get events --sort-by=.lastTimestamp
 
@@ -160,15 +176,7 @@ jobs:
         run: |
           kubectl -n niphas-system port-forward svc/niphas-eval 8443:8443 &
           kubectl -n niphas-system port-forward deployment/niphas-operator 8080:8080 &
-          kubectl -n niphas-system port-forward svc/niphas-docs 8081:80 &
           sleep 5
-
-      # Verify docs site is serving
-      - name: Verify docs site
-        run: |
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/)
-          echo "Docs site returned HTTP $STATUS"
-          [ "$STATUS" = "200" ] || { echo "FAIL: expected 200"; exit 1; }
 
       # Run e2e tests
       - name: Run E2E tests
