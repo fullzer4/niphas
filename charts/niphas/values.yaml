@@ -58,6 +58,24 @@ runner:
     repository: ghcr.io/fullzer4/niphas-runner
     tag: latest
 
+docs:
+  enabled: false
+  image:
+    repository: ghcr.io/fullzer4/niphas-docs
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 100m
+      memory: 64Mi
+
 config:
   logLevel: info
   binaryCaches:

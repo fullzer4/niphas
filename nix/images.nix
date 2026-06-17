@@ -88,6 +88,7 @@
           { name = "csi.tar.gz"; path = self'.packages.image-niphas-csi; }
           { name = "runner.tar.gz"; path = self'.packages.image-niphas-runner; }
           { name = "mock-eval.tar.gz"; path = self'.packages.image-niphas-mock-eval; }
+          { name = "docs.tar.gz"; path = self'.packages.image-niphas-docs; }
         ];
       };
     };

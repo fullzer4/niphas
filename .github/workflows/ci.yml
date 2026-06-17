@@ -95,6 +95,7 @@ jobs:
           kind load image-archive result-images/csi.tar.gz --name niphas-test
           kind load image-archive result-images/runner.tar.gz --name niphas-test
           kind load image-archive result-images/mock-eval.tar.gz --name niphas-test
+          kind load image-archive result-images/docs.tar.gz --name niphas-test
 
       # Label nodes for CSI
       - name: Label nodes
@@ -118,7 +119,10 @@ jobs:
             --set eval.image.tag=dev \
             --set csi.image.pullPolicy=Never \
             --set csi.image.tag=dev \
-            --set runner.image.tag=dev
+            --set runner.image.tag=dev \
+            --set docs.enabled=true \
+            --set docs.image.pullPolicy=Never \
+            --set docs.image.tag=dev
 
       # Wait for rollout
       - name: Wait for deployments
@@ -126,6 +130,7 @@ jobs:
           kubectl -n niphas-system rollout status deployment/niphas-operator --timeout=120s
           kubectl -n niphas-system rollout status deployment/niphas-eval --timeout=120s
           kubectl -n niphas-system rollout status daemonset/niphas-csi --timeout=120s
+          kubectl -n niphas-system rollout status deployment/niphas-docs --timeout=120s
 
       # Debug on failure
       - name: Debug pods on failure
@@ -141,6 +146,8 @@ jobs:
           kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-operator --tail=50 || true
           echo "=== Eval logs ==="
           kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-eval --tail=50 || true
+          echo "=== Docs logs ==="
+          kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-docs --tail=50 || true
           echo "=== Events ==="
           kubectl -n niphas-system get events --sort-by=.lastTimestamp
 
@@ -153,7 +160,15 @@ jobs:
         run: |
           kubectl -n niphas-system port-forward svc/niphas-eval 8443:8443 &
           kubectl -n niphas-system port-forward deployment/niphas-operator 8080:8080 &
+          kubectl -n niphas-system port-forward svc/niphas-docs 8081:80 &
           sleep 5
+
+      # Verify docs site is serving
+      - name: Verify docs site
+        run: |
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/)
+          echo "Docs site returned HTTP $STATUS"
+          [ "$STATUS" = "200" ] || { echo "FAIL: expected 200"; exit 1; }
 
       # Run e2e tests
       - name: Run E2E tests
