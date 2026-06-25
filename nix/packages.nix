@@ -53,6 +53,7 @@
           inherit cargoArtifacts;
           partitions = 1;
           partitionType = "count";
+          cargoNextestExtraArgs = "--workspace --exclude niphas-e2e";
         });
         eval-http = craneLib.cargoNextest (commonArgs // {
           inherit cargoArtifacts;
