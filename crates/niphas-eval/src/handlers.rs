@@ -28,13 +28,8 @@ pub async fn healthz() -> StatusCode {
 }
 
 /// GET /readyz -- readiness probe.
-/// Returns 200 if at least one eval has succeeded (warm cache).
-pub async fn readyz(State(evaluator): State<Arc<Evaluator>>) -> StatusCode {
-    if evaluator.is_warm() {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    }
+pub async fn readyz() -> StatusCode {
+    StatusCode::OK
 }
 
 #[cfg(test)]

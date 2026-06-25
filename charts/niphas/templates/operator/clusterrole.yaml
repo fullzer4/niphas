@@ -29,8 +29,8 @@ rules:
   - apiGroups: ["policy"]
     resources: ["poddisruptionbudgets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Events
-  - apiGroups: [""]
+  # Events (core + events.k8s.io)
+  - apiGroups: ["", "events.k8s.io"]
     resources: ["events"]
     verbs: ["create", "patch"]
   # Pod status (for ready replica counting)

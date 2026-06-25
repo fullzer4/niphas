@@ -16,7 +16,6 @@ niphas-core.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true
 prost.workspace = true
-prost-types.workspace = true
 tokio.workspace = true
 tokio-stream = { version = "0.1", features = ["net"] }
 tracing.workspace = true

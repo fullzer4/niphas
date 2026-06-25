@@ -74,6 +74,14 @@ pub struct ClosureResolutionConfig {
     /// Timeout for resolving the full closure.
     #[serde(default = "default_closure_timeout", with = "humantime_serde")]
     pub timeout: Duration,
+
+    /// Maximum number of store paths in a closure.
+    #[serde(default = "default_max_paths")]
+    pub max_paths: usize,
+
+    /// Maximum total NAR bytes (uncompressed) for a closure.
+    #[serde(default = "default_max_nar_bytes")]
+    pub max_nar_bytes: u64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -124,6 +132,15 @@ fn default_closure_timeout() -> Duration {
     Duration::from_secs(60)
 }
 
+fn default_max_paths() -> usize {
+    50_000
+}
+
+fn default_max_nar_bytes() -> u64 {
+    // 50 GB
+    50 * 1024 * 1024 * 1024
+}
+
 fn default_cache_path() -> PathBuf {
     PathBuf::from("/var/lib/niphas/cache")
 }
@@ -163,6 +180,8 @@ impl Default for ClosureResolutionConfig {
         Self {
             concurrency: default_closure_concurrency(),
             timeout: default_closure_timeout(),
+            max_paths: default_max_paths(),
+            max_nar_bytes: default_max_nar_bytes(),
         }
     }
 }
@@ -199,6 +218,42 @@ impl NiphasConfig {
         figment = figment.merge(Env::prefixed("NIPHAS_").split("_"));
 
         figment.extract()
+    }
+
+    /// Validate configuration invariants. Returns a list of problems found.
+    pub fn validate(&self) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        if self.cache.high_watermark_bytes <= self.cache.low_watermark_bytes {
+            errors.push(format!(
+                "cache.highWatermarkBytes ({}) must be greater than cache.lowWatermarkBytes ({})",
+                self.cache.high_watermark_bytes, self.cache.low_watermark_bytes
+            ));
+        }
+
+        if self.eval_timeout.is_zero() {
+            errors.push("evalTimeout must be greater than 0".into());
+        }
+
+        if self.closure_resolution.concurrency == 0 {
+            errors.push("closureResolution.concurrency must be greater than 0".into());
+        }
+
+        if self.closure_resolution.timeout.is_zero() {
+            errors.push("closureResolution.timeout must be greater than 0".into());
+        }
+
+        if self.binary_caches.is_empty() {
+            errors.push(
+                "binaryCaches must not be empty (at least one binary cache is required)".into(),
+            );
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
     }
 
     /// Load configuration, falling back to defaults with a warning on error.
@@ -240,6 +295,53 @@ mod tests {
         assert_eq!(cs.high_watermark_bytes, 15 * 1024 * 1024 * 1024);
         assert_eq!(cs.low_watermark_bytes, 10 * 1024 * 1024 * 1024);
         assert_eq!(cs.gc_interval, Duration::from_secs(300));
+    }
+
+    fn valid_config() -> NiphasConfig {
+        NiphasConfig {
+            binary_caches: vec![CacheConfig {
+                url: "https://cache.nixos.org".into(),
+                public_key: None,
+                priority: 40,
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_validate_high_watermark_less_than_low() {
+        let config = NiphasConfig {
+            cache: CacheStorageConfig {
+                high_watermark_bytes: 100,
+                low_watermark_bytes: 200,
+                ..Default::default()
+            },
+            ..valid_config()
+        };
+        let errors = config.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("highWatermarkBytes")));
+    }
+
+    #[test]
+    fn test_validate_zero_eval_timeout() {
+        let config = NiphasConfig {
+            eval_timeout: Duration::from_secs(0),
+            ..valid_config()
+        };
+        let errors = config.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("evalTimeout")));
+    }
+
+    #[test]
+    fn test_validate_empty_binary_caches() {
+        let config = NiphasConfig::default();
+        let errors = config.validate().unwrap_err();
+        assert!(errors.iter().any(|e| e.contains("binaryCaches")));
+    }
+
+    #[test]
+    fn test_validate_valid_config() {
+        assert!(valid_config().validate().is_ok());
     }
 
     #[test]

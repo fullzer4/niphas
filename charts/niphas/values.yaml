@@ -69,7 +69,7 @@ docs:
 config:
   logLevel: info
   binaryCaches:
-    - https://cache.nixos.org
+    - url: https://cache.nixos.org
   allowedFlakeOrigins:
     - "github:*"
   evalWebhookUrl: http://niphas-eval.niphas-system.svc:8443

@@ -38,10 +38,17 @@ spec:
             periodSeconds: 10
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /readyz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           resources:
             {{- toYaml .Values.eval.resources | nindent 12 }}
           volumeMounts:

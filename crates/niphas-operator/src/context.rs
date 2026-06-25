@@ -2,9 +2,8 @@ use kube::Client;
 use kube_runtime::events::{Recorder, Reporter};
 use niphas_core::config::NiphasConfig;
 use reqwest::Client as HttpClient;
-use std::sync::Arc;
 
-/// Shared context for the reconciler and health server.
+/// Shared context for the reconciler.
 pub struct Context {
     /// Kubernetes API client.
     pub client: Client,
@@ -14,8 +13,6 @@ pub struct Context {
     pub recorder: Recorder,
     /// Operator configuration.
     pub config: NiphasConfig,
-    /// Whether the controller is ready (leader elected + watching).
-    pub ready: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Context {
@@ -33,7 +30,6 @@ impl Context {
             http: HttpClient::new(),
             recorder,
             config,
-            ready: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 }

@@ -16,7 +16,7 @@ use kube_leader_election::{LeaseLock, LeaseLockParams, LeaseLockResult};
 use niphas_core::config::NiphasConfig;
 use niphas_core::crd::NiphasWorkload;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -29,12 +29,11 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 const LEASE_NAME: &str = "niphas-operator-leader";
 const LEASE_TTL: Duration = Duration::from_secs(15);
 const LEASE_RENEW_INTERVAL: Duration = Duration::from_secs(5);
-/// Max consecutive renewal failures before giving up leadership.
 const MAX_RENEW_FAILURES: u32 = 3;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _telemetry = niphas_core::telemetry::init_tracing("niphas-operator");
+    niphas_core::telemetry::init_tracing("niphas-operator");
     info!("starting niphas-operator");
 
     let config = NiphasConfig::load_or_default(None);
@@ -43,11 +42,10 @@ async fn main() -> anyhow::Result<()> {
     let client = Client::try_default().await?;
     info!("connected to kubernetes");
 
+    let ready = Arc::new(AtomicBool::new(false));
     let ctx = Arc::new(Context::new(client.clone(), config));
-    let ready = ctx.ready.clone();
     let shutdown = CancellationToken::new();
 
-    // Start health server (runs regardless of leadership)
     let health_state = health::HealthState {
         ready: ready.clone(),
     };
@@ -57,18 +55,14 @@ async fn main() -> anyhow::Result<()> {
 
     let health_shutdown = shutdown.clone();
     tokio::spawn(async move {
-        let serve = axum::serve(health_listener, health_router);
-        tokio::select! {
-            result = serve => {
-                if let Err(e) = result {
-                    error!(error = %e, "health server failed");
-                }
-            }
-            _ = health_shutdown.cancelled() => {}
+        if let Err(e) = axum::serve(health_listener, health_router)
+            .with_graceful_shutdown(async move { health_shutdown.cancelled().await })
+            .await
+        {
+            error!(error = %e, "health server failed");
         }
     });
 
-    // Leader election: only the leader runs the controller
     let holder_id = std::env::var("POD_NAME")
         .unwrap_or_else(|_| format!("niphas-operator-{}", std::process::id()));
 
@@ -87,7 +81,6 @@ async fn main() -> anyhow::Result<()> {
 
     info!(holder_id = %holder_id, "starting leader election");
 
-    // Acquire leadership before starting the controller
     loop {
         match leadership.try_acquire_or_renew().await? {
             LeaseLockResult::Acquired(_) => {
@@ -106,9 +99,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Spawn lease renewal in the background
     let renew_shutdown = shutdown.clone();
-    let ready_for_renewer = ready.clone();
+    let renew_ready = ready.clone();
     tokio::spawn(async move {
         let mut consecutive_failures: u32 = 0;
 
@@ -125,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
                 }
                 Ok(LeaseLockResult::NotAcquired(_)) => {
                     warn!("lost leadership, initiating shutdown");
-                    ready_for_renewer.store(false, Ordering::Relaxed);
+                    renew_ready.store(false, Ordering::Relaxed);
                     renew_shutdown.cancel();
                     break;
                 }
@@ -139,7 +131,7 @@ async fn main() -> anyhow::Result<()> {
                     );
                     if consecutive_failures >= MAX_RENEW_FAILURES {
                         error!("max renewal failures reached, initiating shutdown");
-                        ready_for_renewer.store(false, Ordering::Relaxed);
+                        renew_ready.store(false, Ordering::Relaxed);
                         renew_shutdown.cancel();
                         break;
                     }
@@ -148,7 +140,6 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    // Start controller (only runs as leader)
     let workloads: Api<NiphasWorkload> = Api::all(client.clone());
     let deployments: Api<Deployment> = Api::all(client.clone());
     let pods: Api<Pod> = Api::all(client.clone());
@@ -181,10 +172,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Graceful shutdown: ready=false lets K8s drain traffic before restart
     ready.store(false, Ordering::Relaxed);
     info!("shutdown complete");
 
-    // _telemetry guard drops here, flushing pending spans/logs
     Ok(())
 }

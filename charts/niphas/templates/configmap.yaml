@@ -10,7 +10,10 @@ data:
     logLevel: {{ .Values.config.logLevel | quote }}
     binaryCaches:
       {{- range .Values.config.binaryCaches }}
-      - url: {{ . | quote }}
+      - url: {{ .url | quote }}
+        {{- if .publicKey }}
+        publicKey: {{ .publicKey | quote }}
+        {{- end }}
       {{- end }}
     allowedFlakeOrigins:
       {{- range .Values.config.allowedFlakeOrigins }}
@@ -21,6 +24,6 @@ data:
     evalTimeout: {{ .Values.config.evalTimeout | quote }}
     cache:
       path: {{ .Values.config.cache.path | quote }}
-      highWatermarkBytes: {{ .Values.config.cache.highWatermark }}
-      lowWatermarkBytes: {{ .Values.config.cache.lowWatermark }}
+      highWatermarkBytes: {{ .Values.config.cache.highWatermark | int64 }}
+      lowWatermarkBytes: {{ .Values.config.cache.lowWatermark | int64 }}
       gcInterval: {{ .Values.config.cache.gcInterval | quote }}

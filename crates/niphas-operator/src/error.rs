@@ -24,7 +24,19 @@ impl OperatorError {
     pub fn is_transient(&self) -> bool {
         matches!(
             self,
-            OperatorError::Kube(_) | OperatorError::EvalWebhook(_) | OperatorError::EvalTimeout(_)
+            Self::Kube(_) | Self::EvalWebhook(_) | Self::EvalTimeout(_)
         )
+    }
+
+    /// Extract a machine-readable reason and human-readable message for K8s conditions/events.
+    pub fn reason_and_message(&self) -> (String, String) {
+        match self {
+            Self::EvalTimeout(secs) => (
+                "EvalTimeout".into(),
+                format!("Evaluation timed out after {secs}s"),
+            ),
+            Self::EvalFailed { code, message } => (code.clone(), message.clone()),
+            other => ("EvalFailed".into(), other.to_string()),
+        }
     }
 }

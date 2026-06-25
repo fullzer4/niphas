@@ -13,7 +13,7 @@
           pkgs.pkg-config
           pkgs.protobuf
           pkgs.clang
-          pkgs.lld
+          pkgs.mold
           pkgs.git
           pkgs.cargo-deny
           pkgs.cargo-nextest
@@ -21,28 +21,13 @@
           pkgs.kubectl
           pkgs.kubernetes-helm
           pkgs.kind
-          pkgs.mdbook
         ];
 
-        buildInputs = [
-          pkgs.openssl
-          pkgs.zstd
-          pkgs.xz
-          pkgs.bzip2
-        ];
+        buildInputs = [ pkgs.openssl pkgs.zstd pkgs.xz pkgs.bzip2 ];
 
         PROTOC = "${pkgs.protobuf}/bin/protoc";
-
-        LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-          pkgs.openssl
-          pkgs.zstd
-          pkgs.xz
-          pkgs.bzip2
-        ];
-
-        shellHook = ''
-          echo "niphas devShell ready"
-        '';
+        CARGO_BUILD_RUSTFLAGS = "-C linker=clang -C link-arg=-fuse-ld=mold --cfg tokio_unstable";
+        LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.openssl pkgs.zstd pkgs.xz pkgs.bzip2 ];
       };
     };
 }

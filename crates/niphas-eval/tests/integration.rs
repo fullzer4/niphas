@@ -32,10 +32,10 @@ async fn healthz_returns_200() {
 }
 
 #[tokio::test]
-async fn readyz_returns_503_when_cold() {
+async fn readyz_returns_200() {
     let base = spawn_app().await;
     let resp = reqwest::get(format!("{base}/readyz")).await.unwrap();
-    assert_eq!(resp.status(), 503);
+    assert_eq!(resp.status(), 200);
 }
 
 #[tokio::test]
