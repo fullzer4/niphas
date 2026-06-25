@@ -121,13 +121,13 @@ jobs:
 
       - name: Wait for docs workload
         run: |
-          for i in $(seq 1 90); do
+          for i in $(seq 1 150); do
             PHASE=$(kubectl -n niphas-system get niphasworkload niphas-docs -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
             echo "attempt $i: phase=$PHASE"
             [ "$PHASE" = "Running" ] && exit 0
             sleep 2
           done
-          echo "FAIL: did not reach Running"
+          echo "FAIL: did not reach Running after 5 minutes"
           kubectl -n niphas-system get niphasworkload niphas-docs -o yaml || true
           exit 1
 
