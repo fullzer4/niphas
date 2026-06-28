@@ -1,0 +1,41 @@
+# Multi-stage build for niphas-eval
+FROM rust:1.83-slim-bookworm AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+
+# Build release binary
+RUN cargo build --release --bin niphas-eval
+
+# Runtime image - use NixOS/nix Docker image as base
+FROM nixos/nix:2.24.11
+
+# Install runtime dependencies
+RUN nix-channel --update && \
+    nix-env -iA nixpkgs.cacert nixpkgs.git && \
+    nix-collect-garbage -d
+
+# Create Nix config
+RUN mkdir -p /etc/nix && echo 'sandbox = false\n\
+experimental-features = nix-command flakes\n\
+accept-flake-config = false\n\
+filter-syscalls = false' > /etc/nix/nix.conf
+
+# Create nobody user if it doesn't exist
+RUN id -u 65534 &>/dev/null || adduser -u 65534 -D -s /bin/false nobody
+
+COPY --from=builder /build/target/release/niphas-eval /bin/niphas-eval
+
+USER 65534
+ENV HOME=/tmp
+ENTRYPOINT ["/bin/niphas-eval"]
