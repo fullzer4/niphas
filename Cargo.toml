@@ -14,7 +14,7 @@ version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/fullzer4/niphas"
-rust-version = "1.85"
+rust-version = "1.88"
 
 [workspace.dependencies]
 kube = { version = "3.1", features = ["runtime", "derive", "client"] }
