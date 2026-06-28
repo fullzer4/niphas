@@ -1,16 +1,16 @@
 use niphas_core::config::NiphasConfig;
 use niphas_core::error::NiphasError;
 use niphas_core::nix::cache_client::{BinaryCacheClient, CacheClient};
-use niphas_core::nix::hash::sha256_hash;
 use niphas_core::nix::nar::NarReader;
 use niphas_core::nix::narinfo::NarInfo;
+use niphas_core::nix::signature::{self, TrustedKey};
 use niphas_core::nix::store_path::StorePath;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Local NAR cache on each node.
 ///
@@ -23,6 +23,7 @@ use tracing::{debug, info};
 pub struct NarCache<C: BinaryCacheClient = CacheClient> {
     cache_dir: PathBuf,
     cache_client: C,
+    trusted_keys: Vec<TrustedKey>,
     /// Per-path locks to prevent duplicate downloads.
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
@@ -34,9 +35,17 @@ impl NarCache<CacheClient> {
 
         let cache_client = CacheClient::new(config.binary_caches.clone())?;
 
+        let trusted_keys: Vec<TrustedKey> = config
+            .binary_caches
+            .iter()
+            .filter_map(|c| c.public_key.as_deref())
+            .map(TrustedKey::parse)
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(NarCache {
             cache_dir,
             cache_client,
+            trusted_keys,
             locks: Mutex::new(HashMap::new()),
         })
     }
@@ -48,8 +57,14 @@ impl<C: BinaryCacheClient> NarCache<C> {
         NarCache {
             cache_dir,
             cache_client,
+            trusted_keys: Vec::new(),
             locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Return the cache directory path (used as the bind mount source for /nix/store).
+    pub fn store_dir(&self) -> &Path {
+        &self.cache_dir
     }
 
     /// Return the filesystem path for a given store path basename.
@@ -95,7 +110,13 @@ impl<C: BinaryCacheClient> NarCache<C> {
                 continue;
             }
 
-            fetch_and_extract(&self.cache_client, basename, &self.cache_dir).await?;
+            fetch_and_extract(
+                &self.cache_client,
+                basename,
+                &self.cache_dir,
+                &self.trusted_keys,
+            )
+            .await?;
         }
 
         Ok(())
@@ -118,26 +139,76 @@ impl<C: BinaryCacheClient> NarCache<C> {
 }
 
 /// Fetch a NAR from binary cache and extract it to the cache directory.
+///
+/// Verification strategy (matches Nix behaviour):
+/// - `narHash` (uncompressed NAR) is the authoritative integrity check.
+/// - `fileHash` (compressed NAR) is NOT verified — Nix never checks it on
+///   download, and CDN staleness can cause it to diverge from the actual file.
+/// - On `narHash` mismatch the narinfo is likely stale (CDN served a cached
+///   narinfo while S3 has a newer NAR). We re-fetch narinfo once and retry,
+///   mirroring the approach proposed in NixOS/nix PR #3969.
 async fn fetch_and_extract(
     client: &impl BinaryCacheClient,
     basename: &str,
     cache_dir: &Path,
+    trusted_keys: &[TrustedKey],
 ) -> Result<(), NiphasError> {
     info!(basename, "fetching from binary cache");
 
     let store_path = StorePath::parse_basename(basename)?;
-    let narinfo = client.fetch_narinfo_by_hash(&store_path.hash_str()).await?;
-    let nar_data = client.fetch_nar(&narinfo).await?;
+    let hash = store_path.hash_str();
 
-    let file_hash = sha256_hash(&nar_data);
-    if file_hash != narinfo.file_hash {
-        return Err(NiphasError::HashMismatch {
-            expected: narinfo.file_hash.to_string(),
-            actual: file_hash.to_string(),
-        });
+    let narinfo = client.fetch_narinfo_by_hash(&hash).await?;
+    verify_narinfo_sig(&narinfo, trusted_keys)?;
+
+    match try_fetch_and_verify(client, &narinfo, basename, cache_dir).await {
+        Ok(()) => Ok(()),
+        Err(NiphasError::HashMismatch { expected, actual }) => {
+            // Stale narinfo — re-fetch and retry once (PR #3969 pattern).
+            warn!(
+                basename,
+                expected = %expected,
+                actual = %actual,
+                "narHash mismatch, re-fetching narinfo (possible CDN staleness)"
+            );
+
+            let fresh_narinfo = client.fetch_narinfo_by_hash(&hash).await?;
+            verify_narinfo_sig(&fresh_narinfo, trusted_keys)?;
+
+            // If the narinfo hasn't changed, no point retrying the same NAR.
+            if fresh_narinfo.nar_hash == narinfo.nar_hash && fresh_narinfo.url == narinfo.url {
+                return Err(NiphasError::HashMismatch { expected, actual });
+            }
+
+            info!(
+                basename,
+                "narinfo changed after re-fetch, retrying download"
+            );
+            try_fetch_and_verify(client, &fresh_narinfo, basename, cache_dir).await
+        }
+        Err(e) => Err(e),
     }
+}
 
-    let decompressed = decompress_nar(&narinfo, &nar_data).await?;
+/// Verify narinfo signature against trusted keys (if any are configured).
+fn verify_narinfo_sig(narinfo: &NarInfo, trusted_keys: &[TrustedKey]) -> Result<(), NiphasError> {
+    if !trusted_keys.is_empty() {
+        let fp = narinfo.fingerprint();
+        signature::verify_narinfo(&fp, &narinfo.signatures, trusted_keys)?;
+    }
+    Ok(())
+}
+
+/// Download a NAR, decompress, parse, verify narHash, and extract to cache dir.
+async fn try_fetch_and_verify(
+    client: &impl BinaryCacheClient,
+    narinfo: &NarInfo,
+    basename: &str,
+    cache_dir: &Path,
+) -> Result<(), NiphasError> {
+    let nar_data = client.fetch_nar(narinfo).await?;
+
+    let decompressed = decompress_nar(narinfo, &nar_data).await?;
 
     let tmp_name = format!(".tmp-{}-{}", basename, std::process::id());
     let tmp_dir = cache_dir.join(&tmp_name);
@@ -176,22 +247,32 @@ async fn decompress_nar(narinfo: &NarInfo, data: &[u8]) -> Result<Vec<u8>, Nipha
     macro_rules! decode {
         ($decoder:ty, $data:expr) => {{
             let decoder = <$decoder>::new(tokio::io::BufReader::new($data));
-            let mut output = Vec::new();
+            let mut buf = Vec::new();
             tokio::pin!(decoder);
-            decoder.read_to_end(&mut output).await?;
-            Ok(output)
+            decoder.read_to_end(&mut buf).await?;
+            buf
         }};
     }
 
-    match narinfo.compression {
-        Compression::None => Ok(data.to_vec()),
+    let output = match narinfo.compression {
+        Compression::None => data.to_vec(),
         Compression::Zstd => decode!(async_compression::tokio::bufread::ZstdDecoder<_>, data),
         Compression::Xz => decode!(async_compression::tokio::bufread::XzDecoder<_>, data),
         Compression::Bzip2 => decode!(async_compression::tokio::bufread::BzDecoder<_>, data),
-        other => Err(NiphasError::Cache(format!(
-            "unsupported compression: {other}"
-        ))),
+        other => {
+            return Err(NiphasError::Cache(format!(
+                "unsupported compression: {other}"
+            )));
+        }
+    };
+    if output.len() as u64 != narinfo.nar_size {
+        return Err(NiphasError::Cache(format!(
+            "decompressed NAR size mismatch: expected {} bytes, got {}",
+            narinfo.nar_size,
+            output.len()
+        )));
     }
+    Ok(output)
 }
 
 /// Extract a NAR node tree to a filesystem directory.

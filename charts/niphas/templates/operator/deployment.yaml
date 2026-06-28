@@ -51,6 +51,13 @@ spec:
               port: health
             initialDelaySeconds: 5
             periodSeconds: 10
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           resources:
             {{- toYaml .Values.operator.resources | nindent 12 }}
           volumeMounts:

@@ -5,160 +5,185 @@ on:
     branches: [main]
   pull_request:
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
-  # ── Layer 1 (all parallel) ─────────────────────
+  # ── L1: fast checks (all parallel) ───────────────
   fmt:
-    name: "L1 · Format"
+    name: "L1 · fmt"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix develop -c cargo fmt --check
+      - uses: dtolnay/rust-toolchain@1.88
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
 
   clippy:
-    name: "L1 · Clippy"
+    name: "L1 · clippy"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix develop -c cargo clippy --workspace --all-targets -- -D warnings
+      - uses: dtolnay/rust-toolchain@1.88
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler
+      - run: cargo clippy --workspace --all-targets -- --deny warnings
 
   deny:
-    name: "L1 · Deny"
+    name: "L1 · deny"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix develop -c cargo deny check
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-deny
+      - run: cargo deny check
 
-  unit:
-    name: "L1 · Unit Tests"
+  test:
+    name: "L1 · test"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix develop -c cargo nextest run --workspace --lib --bins
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler
+      - run: cargo nextest run --workspace --exclude niphas-e2e
 
-  # ── Layer 2 (all parallel, gates on layer 1) ───
+  # ── L2: integration tests (parallel, gate on L1) ─
   eval-http:
     name: "L2 · Eval HTTP"
-    needs: [fmt, clippy, deny, unit]
+    needs: [fmt, clippy, deny, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix develop -c cargo nextest run -p niphas-eval --test '*'
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler
+      - run: cargo nextest run -p niphas-eval --test '*'
 
   csi-grpc:
     name: "L2 · CSI gRPC"
-    needs: [fmt, clippy, deny, unit]
+    needs: [fmt, clippy, deny, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix develop -c cargo nextest run -p niphas-csi --test '*'
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler
+      - run: cargo nextest run -p niphas-csi --test '*'
 
-  # ── Layer 3 (gates on layer 2) ─────────────────
+  # ── L3: E2E (gates on L2) ───────────────────────
   e2e-kind:
     name: "L3 · E2E Kind"
     needs: [eval-http, csi-grpc]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: dtolnay/rust-toolchain@1.88
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
 
-      # Build all OCI images in a single nix build (shared cargoArtifacts)
-      - name: Build images
-        run: nix build .#all-images -o result-images
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev protobuf-compiler
 
-      # Create kind cluster
+      - name: Build Docker images
+        run: |
+          docker build -t ghcr.io/fullzer4/niphas-operator:dev -f Dockerfile.operator .
+          docker build -t ghcr.io/fullzer4/niphas-eval:dev -f Dockerfile.eval .
+          docker build -t ghcr.io/fullzer4/niphas-csi:dev -f Dockerfile.csi .
+          docker build -t ghcr.io/fullzer4/niphas-runner:dev -f Dockerfile.runner .
+
       - uses: helm/kind-action@v1
         with:
           cluster_name: niphas-test
           config: hack/kind-config.yaml
 
-      # Load images into kind
       - name: Load images into kind
         run: |
-          kind load image-archive result-images/operator.tar.gz --name niphas-test
-          kind load image-archive result-images/eval.tar.gz --name niphas-test
-          kind load image-archive result-images/csi.tar.gz --name niphas-test
-          kind load image-archive result-images/runner.tar.gz --name niphas-test
-          kind load image-archive result-images/mock-eval.tar.gz --name niphas-test
+          kind load docker-image ghcr.io/fullzer4/niphas-operator:dev --name niphas-test
+          kind load docker-image ghcr.io/fullzer4/niphas-eval:dev --name niphas-test
+          kind load docker-image ghcr.io/fullzer4/niphas-csi:dev --name niphas-test
+          kind load docker-image ghcr.io/fullzer4/niphas-runner:dev --name niphas-test
 
-      # Label nodes for CSI
       - name: Label nodes
         run: kubectl label nodes --all niphas.io/store=true
 
-      # Verify CRD freshness
       - name: Verify CRD freshness
         run: |
-          nix develop -c cargo run --bin niphas-crd-gen 2>/dev/null | grep -v '^niphas devShell ready$' | diff charts/niphas/crds/niphasworkloads.yaml -
+          cargo run --bin niphas-crd-gen 2>/dev/null | diff charts/niphas/crds/niphasworkloads.yaml -
 
-      # Install Helm chart
       - name: Install niphas
         run: |
-          nix develop -c helm install niphas charts/niphas \
+          helm install niphas charts/niphas \
             --namespace niphas-system \
             --create-namespace \
             --set operator.image.pullPolicy=Never \
             --set operator.image.tag=dev \
-            --set eval.image.repository=ghcr.io/fullzer4/niphas-mock-eval \
             --set eval.image.pullPolicy=Never \
             --set eval.image.tag=dev \
+            --set eval.resources.limits.memory=4Gi \
             --set csi.image.pullPolicy=Never \
             --set csi.image.tag=dev \
-            --set runner.image.tag=dev
+            --set runner.image.tag=dev \
+            --set docs.enabled=true \
+            --set docs.flakeRef=github:NixOS/nixpkgs \
+            --set docs.attribute=legacyPackages.x86_64-linux.hello
 
-      # Wait for rollout
-      - name: Wait for deployments
+      - name: Wait for control plane
         run: |
           kubectl -n niphas-system rollout status deployment/niphas-operator --timeout=120s
           kubectl -n niphas-system rollout status deployment/niphas-eval --timeout=120s
           kubectl -n niphas-system rollout status daemonset/niphas-csi --timeout=120s
 
-      # Debug on failure
-      - name: Debug pods on failure
+      - name: Wait for docs workload
+        run: |
+          for i in $(seq 1 150); do
+            PHASE=$(kubectl -n niphas-system get niphasworkload niphas-docs -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+            echo "attempt $i: phase=$PHASE"
+            [ "$PHASE" = "Running" ] && exit 0
+            sleep 2
+          done
+          echo "FAIL: did not reach Running after 5 minutes"
+          kubectl -n niphas-system get niphasworkload niphas-docs -o yaml || true
+          exit 1
+
+      - name: Debug on failure
         if: failure()
         run: |
-          echo "=== Pod status ==="
           kubectl -n niphas-system get pods -o wide
-          echo "=== Pod descriptions ==="
           kubectl -n niphas-system describe pods
-          echo "=== CSI logs ==="
-          kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-csi --all-containers --tail=50 || true
-          echo "=== Operator logs ==="
-          kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-operator --tail=50 || true
-          echo "=== Eval logs ==="
-          kubectl -n niphas-system logs -l app.kubernetes.io/name=niphas-eval --tail=50 || true
-          echo "=== Events ==="
+          for l in niphas-csi niphas-operator niphas-eval; do
+            echo "=== $l ===" && kubectl -n niphas-system logs -l app.kubernetes.io/name=$l --all-containers --tail=50 || true
+          done
+          kubectl -n niphas-system get niphasworkload niphas-docs -o yaml || true
+          kubectl -n niphas-system get deployment -l niphas.io/workload=niphas-docs -o yaml || true
           kubectl -n niphas-system get events --sort-by=.lastTimestamp
 
-      # Create e2e namespace
-      - name: Create e2e namespace
-        run: kubectl create namespace niphas-e2e
-
-      # Port-forward
-      - name: Port-forward services
+      - name: Run E2E tests
         run: |
+          kubectl create namespace niphas-e2e
           kubectl -n niphas-system port-forward svc/niphas-eval 8443:8443 &
           kubectl -n niphas-system port-forward deployment/niphas-operator 8080:8080 &
           sleep 5
-
-      # Run e2e tests
-      - name: Run E2E tests
+          cargo nextest run -p niphas-e2e --test '*'
         env:
           OPERATOR_HEALTH_URL: http://localhost:8080/healthz
           EVAL_HEALTH_URL: http://localhost:8443/healthz
           E2E_NAMESPACE: niphas-e2e
-        run: nix develop -c cargo nextest run -p niphas-e2e --test '*'

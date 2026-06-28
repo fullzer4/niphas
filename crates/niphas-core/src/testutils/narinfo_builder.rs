@@ -2,6 +2,7 @@
 
 use crate::nix::hash::{HashAlgo, NixHash};
 use crate::nix::narinfo::{Compression, NarInfo};
+use crate::nix::signature::NarSignature;
 use crate::nix::store_path::{StorePath, StorePathRef};
 
 /// Builder for creating NarInfo fixtures in tests.
@@ -21,6 +22,7 @@ pub struct NarInfoBuilder {
     nar_hash: NixHash,
     nar_size: u64,
     references: Vec<StorePathRef>,
+    signatures: Vec<NarSignature>,
 }
 
 impl NarInfoBuilder {
@@ -46,6 +48,7 @@ impl NarInfoBuilder {
             },
             nar_size: 2000,
             references: Vec::new(),
+            signatures: Vec::new(),
         }
     }
 
@@ -76,6 +79,12 @@ impl NarInfoBuilder {
         self
     }
 
+    /// Set signatures on the narinfo.
+    pub fn signatures(mut self, sigs: Vec<NarSignature>) -> Self {
+        self.signatures = sigs;
+        self
+    }
+
     pub fn build(self) -> NarInfo {
         NarInfo {
             store_path: self.store_path,
@@ -87,7 +96,7 @@ impl NarInfoBuilder {
             nar_size: self.nar_size,
             references: self.references,
             deriver: None,
-            signatures: Vec::new(),
+            signatures: self.signatures,
             ca: None,
         }
     }

@@ -18,7 +18,7 @@ pub struct EvalRequest {
 /// Successful response from the eval webhook.
 ///
 /// Shared between niphas-eval (serializer) and niphas-operator (deserializer).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EvalResponse {
     pub store_path: String,

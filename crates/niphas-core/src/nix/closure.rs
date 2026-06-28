@@ -1,12 +1,13 @@
 use crate::error::NiphasError;
 use crate::nix::cache_client::BinaryCacheClient;
 use crate::nix::narinfo::NarInfo;
+use crate::nix::signature::{self, TrustedKey};
 use crate::nix::store_path::StorePath;
 use futures::StreamExt;
 use futures::stream::FuturesUnordered;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Result of resolving a full closure.
 #[derive(Debug)]
@@ -39,17 +40,25 @@ impl ResolvedClosure {
 /// Performs BFS over `.narinfo` References using parallel HTTP fetches
 /// (bounded by `concurrency`). Returns all narinfos needed to materialize
 /// the store path.
+///
+/// If `trusted_keys` is non-empty, each narinfo's signature is verified
+/// against the trusted keys. If empty, no signature verification is performed
+/// (backwards compatible).
 pub async fn resolve_closure<C: BinaryCacheClient + Clone>(
     client: &C,
     root: &StorePath,
     concurrency: usize,
     timeout: Duration,
+    trusted_keys: &[TrustedKey],
+    max_paths: usize,
+    max_nar_bytes: u64,
 ) -> Result<ResolvedClosure, NiphasError> {
     let deadline = tokio::time::Instant::now() + timeout;
 
     let mut visited: HashSet<String> = HashSet::new();
     let mut narinfos: HashMap<String, NarInfo> = HashMap::new();
     let mut order: Vec<String> = Vec::new();
+    let mut total_nar_bytes: u64 = 0;
 
     // BFS queue: store path strings to resolve
     let mut queue: Vec<StorePath> = vec![root.clone()];
@@ -88,6 +97,12 @@ pub async fn resolve_closure<C: BinaryCacheClient + Clone>(
                 Ok(narinfo) => {
                     debug!(store_path = %sp_str, refs = narinfo.references.len(), "resolved narinfo");
 
+                    // Verify signature if trusted keys are configured
+                    if !trusted_keys.is_empty() {
+                        let fp = narinfo.fingerprint();
+                        signature::verify_narinfo(&fp, &narinfo.signatures, trusted_keys)?;
+                    }
+
                     // Enqueue unvisited references
                     for ref_basename in &narinfo.references {
                         let ref_path_str = ref_basename.to_store_path_string();
@@ -95,18 +110,32 @@ pub async fn resolve_closure<C: BinaryCacheClient + Clone>(
                             match StorePath::parse(&ref_path_str) {
                                 Ok(ref_sp) => queue.push(ref_sp),
                                 Err(e) => {
-                                    warn!(
-                                        reference = %ref_path_str,
-                                        error = %e,
-                                        "skipping invalid reference"
-                                    );
+                                    return Err(NiphasError::ClosureResolution(format!(
+                                        "invalid reference '{}' in {}: {}",
+                                        ref_path_str, sp_str, e
+                                    )));
                                 }
                             }
                         }
                     }
 
                     order.push(sp_str.clone());
+                    total_nar_bytes += narinfo.nar_size;
                     narinfos.insert(sp_str, narinfo);
+
+                    // Check closure size limits
+                    if narinfos.len() > max_paths {
+                        return Err(NiphasError::ClosureResolution(format!(
+                            "closure exceeds max path count ({})",
+                            max_paths
+                        )));
+                    }
+                    if total_nar_bytes > max_nar_bytes {
+                        return Err(NiphasError::ClosureResolution(format!(
+                            "closure exceeds max NAR size ({} bytes)",
+                            max_nar_bytes
+                        )));
+                    }
                 }
                 Err(e) => {
                     return Err(NiphasError::ClosureResolution(format!(
@@ -132,6 +161,7 @@ pub async fn resolve_closure<C: BinaryCacheClient + Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nix::signature::{NarSignature, TrustedKey};
     use crate::testutils::fake_cache::FakeCacheClient;
     use crate::testutils::narinfo_builder::NarInfoBuilder;
 
@@ -156,9 +186,17 @@ mod tests {
         client.add_narinfo(NarInfoBuilder::new(&path).nar_size(5000).build());
 
         let root = StorePath::parse(&path).unwrap();
-        let result = resolve_closure(&client, &root, 4, Duration::from_secs(10))
-            .await
-            .unwrap();
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[],
+            50_000,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.paths.len(), 1);
         assert_eq!(result.paths[0], path);
@@ -187,9 +225,17 @@ mod tests {
         client.add_narinfo(NarInfoBuilder::new(&path_c).build());
 
         let root = StorePath::parse(&path_a).unwrap();
-        let result = resolve_closure(&client, &root, 4, Duration::from_secs(10))
-            .await
-            .unwrap();
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[],
+            50_000,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.paths.len(), 3);
         assert!(result.paths.contains(&path_a));
@@ -228,9 +274,17 @@ mod tests {
         client.add_narinfo(NarInfoBuilder::new(&path_d).build());
 
         let root = StorePath::parse(&path_a).unwrap();
-        let result = resolve_closure(&client, &root, 4, Duration::from_secs(10))
-            .await
-            .unwrap();
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[],
+            50_000,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await
+        .unwrap();
 
         // D should appear exactly once despite being referenced by both B and C.
         assert_eq!(result.paths.len(), 4);
@@ -251,7 +305,16 @@ mod tests {
         );
 
         let root = StorePath::parse(&path_a).unwrap();
-        let result = resolve_closure(&client, &root, 4, Duration::from_secs(10)).await;
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[],
+            50_000,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await;
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -280,9 +343,17 @@ mod tests {
         );
 
         let root = StorePath::parse(&path_a).unwrap();
-        let result = resolve_closure(&client, &root, 4, Duration::from_secs(10))
-            .await
-            .unwrap();
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[],
+            50_000,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.paths().len(), 2);
         assert_eq!(result.nar_size(), 4000);
@@ -302,10 +373,161 @@ mod tests {
         );
 
         let root = StorePath::parse(&path_a).unwrap();
-        let result = resolve_closure(&client, &root, 4, Duration::from_secs(10))
-            .await
-            .unwrap();
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[],
+            50_000,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.paths.len(), 1);
+    }
+
+    /// Helper: generate a valid ed25519 keypair and sign a narinfo fingerprint.
+    fn sign_narinfo(narinfo: &NarInfo, key_name: &str) -> (TrustedKey, NarSignature) {
+        use base64::prelude::*;
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[42u8; 32]);
+        let verifying_key = signing_key.verifying_key();
+
+        let fp = narinfo.fingerprint();
+        let sig = signing_key.sign(fp.as_bytes());
+
+        let sig_b64 = BASE64_STANDARD.encode(sig.to_bytes());
+        let sig_str = format!("{key_name}:{sig_b64}");
+        let nar_sig = NarSignature::parse(&sig_str).unwrap();
+
+        let key_b64 = BASE64_STANDARD.encode(verifying_key.to_bytes());
+        let key_str = format!("{key_name}:{key_b64}");
+        let trusted_key = TrustedKey::parse(&key_str).unwrap();
+
+        (trusted_key, nar_sig)
+    }
+
+    #[tokio::test]
+    async fn test_signature_verification_valid() {
+        let mut client = FakeCacheClient::new();
+        let path = sp(HASH_A, "hello-2.12.1");
+
+        let narinfo_unsigned = NarInfoBuilder::new(&path).nar_size(5000).build();
+        let (trusted_key, nar_sig) = sign_narinfo(&narinfo_unsigned, "test-key-1");
+
+        client.add_narinfo(
+            NarInfoBuilder::new(&path)
+                .nar_size(5000)
+                .signatures(vec![nar_sig])
+                .build(),
+        );
+
+        let root = StorePath::parse(&path).unwrap();
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[trusted_key],
+            50_000,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_signature_verification_no_valid_sig() {
+        let mut client = FakeCacheClient::new();
+        let path = sp(HASH_A, "hello-2.12.1");
+
+        // Narinfo with no signatures, but trusted keys are configured
+        client.add_narinfo(NarInfoBuilder::new(&path).nar_size(5000).build());
+
+        let key_str = "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=";
+        let trusted_key = TrustedKey::parse(key_str).unwrap();
+
+        let root = StorePath::parse(&path).unwrap();
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[trusted_key],
+            50_000,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("signature"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_signature_verification_empty_keys_skips() {
+        let mut client = FakeCacheClient::new();
+        let path = sp(HASH_A, "hello-2.12.1");
+
+        // Narinfo with no signatures, but no trusted keys configured → should pass
+        client.add_narinfo(NarInfoBuilder::new(&path).nar_size(5000).build());
+
+        let root = StorePath::parse(&path).unwrap();
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[],
+            50_000,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_closure_exceeds_max_paths() {
+        let mut client = FakeCacheClient::new();
+        let path = sp(HASH_A, "hello-2.12.1");
+        client.add_narinfo(NarInfoBuilder::new(&path).nar_size(5000).build());
+
+        let root = StorePath::parse(&path).unwrap();
+        // max_paths = 0 means any closure with at least 1 path should fail
+        let result = resolve_closure(
+            &client,
+            &root,
+            4,
+            Duration::from_secs(10),
+            &[],
+            0,
+            50 * 1024 * 1024 * 1024,
+        )
+        .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("max path count"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn test_closure_exceeds_max_nar_bytes() {
+        let mut client = FakeCacheClient::new();
+        let path = sp(HASH_A, "hello-2.12.1");
+        client.add_narinfo(NarInfoBuilder::new(&path).nar_size(5000).build());
+
+        let root = StorePath::parse(&path).unwrap();
+        // max_nar_bytes = 100 is less than the 5000 nar_size
+        let result =
+            resolve_closure(&client, &root, 4, Duration::from_secs(10), &[], 50_000, 100).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("max NAR size"), "unexpected error: {err}");
     }
 }

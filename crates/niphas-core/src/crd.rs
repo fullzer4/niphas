@@ -285,7 +285,7 @@ pub struct ArchStatus {
     pub ready_replicas: Option<i32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct NiphasCondition {
     /// Condition type: Evaluated, ClosureCached, Available, Progressing, Degraded.

@@ -116,8 +116,9 @@ impl<C: BinaryCacheClient + 'static, M: MountOps + 'static> csi::node_server::No
             )));
         }
 
-        // Bind mount the primary store path (read-only).
-        let source = self.cache.path_for(store_path);
+        // Bind mount the entire cache directory so all closure paths are
+        // accessible at their correct /nix/store/<hash>-<name> paths.
+        let source = self.cache.store_dir().to_string_lossy().to_string();
         if let Err(e) = self.mount.bind_mount_readonly(&source, target_path) {
             // Clean up target dir on failure.
             warn!(target_path, err = %e, "bind mount failed, cleaning up");

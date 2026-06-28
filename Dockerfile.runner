@@ -1,0 +1,8 @@
+# Simple runner image with busybox
+FROM busybox:1.36-glibc
+
+# Copy CA certificates from debian
+COPY --from=debian:bookworm-slim /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENTRYPOINT ["/bin/sh"]

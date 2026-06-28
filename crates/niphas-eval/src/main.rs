@@ -10,7 +10,7 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _telemetry = niphas_core::telemetry::init_tracing("niphas-eval");
+    niphas_core::telemetry::init_tracing("niphas-eval");
     info!("starting niphas-eval");
 
     let config = NiphasConfig::load_or_default(None);
@@ -25,7 +25,21 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(&addr).await?;
     info!(addr = %addr, "listening");
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
+    info!("shutdown complete");
     Ok(())
+}
+
+async fn shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let mut sigterm = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => info!("received SIGINT"),
+        _ = sigterm.recv() => info!("received SIGTERM"),
+    }
 }

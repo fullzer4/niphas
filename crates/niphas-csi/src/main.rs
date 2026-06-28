@@ -17,7 +17,7 @@ const CSI_SOCKET_PATH: &str = "/csi/csi.sock";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _telemetry = niphas_core::telemetry::init_tracing("niphas-csi");
+    niphas_core::telemetry::init_tracing("niphas-csi");
     info!("starting niphas-csi");
 
     let config = NiphasConfig::load_or_default(None);
@@ -48,8 +48,20 @@ async fn main() -> anyhow::Result<()> {
         .add_service(csi::node_server::NodeServer::new(NodeService::new(
             node_id, nar_cache,
         )))
-        .serve_with_incoming(stream)
+        .serve_with_incoming_shutdown(stream, shutdown_signal())
         .await?;
 
+    info!("shutdown complete");
     Ok(())
+}
+
+async fn shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    let mut sigterm = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => info!("received SIGINT"),
+        _ = sigterm.recv() => info!("received SIGTERM"),
+    }
 }

@@ -1,0 +1,32 @@
+# Git
+.git/
+.github/
+
+# Nix
+.direnv/
+.envrc
+flake.lock
+flake.nix
+nix/
+result*
+
+# Build artifacts
+target/
+*.tar.gz
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.gitlab-ci.yml
+
+# Charts (not needed in Docker build context except for E2E)
+charts/
+
+# Tests
+hack/
+
+# IDE
+.vscode/
+.idea/

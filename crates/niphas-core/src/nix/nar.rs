@@ -130,25 +130,36 @@ impl<R: AsyncRead + Unpin + Send> NarReader<R> {
         Ok((node, nar_hash))
     }
 
-    /// Parse a single node: `"(" node_body ")"`.
+    /// Parse a single node: `"(" type_tag node_body ")"`.
+    ///
+    /// Per the NAR spec, a node is `str("(") nar-obj-inner str(")")`.
+    /// For directory nodes, `parse_directory()` already consumes the
+    /// closing `")"` (it reads `"entry"` or `")"` in a loop to detect
+    /// end-of-directory), so we must not read it again.
     async fn parse_node(&mut self) -> Result<NarNode, NiphasError> {
         self.expect_str("(").await?;
         self.expect_str("type").await?;
 
         let type_str = self.read_str().await?;
-        let node = match type_str.as_str() {
-            "regular" => self.parse_regular().await?,
-            "symlink" => self.parse_symlink().await?,
-            "directory" => self.parse_directory().await?,
-            _ => {
-                return Err(NiphasError::NarParse(format!(
-                    "unknown node type: '{type_str}'"
-                )));
+        match type_str.as_str() {
+            "regular" => {
+                let node = self.parse_regular().await?;
+                self.expect_str(")").await?;
+                Ok(node)
             }
-        };
-
-        self.expect_str(")").await?;
-        Ok(node)
+            "symlink" => {
+                let node = self.parse_symlink().await?;
+                self.expect_str(")").await?;
+                Ok(node)
+            }
+            "directory" => {
+                // parse_directory already consumes the closing ")"
+                self.parse_directory().await
+            }
+            _ => Err(NiphasError::NarParse(format!(
+                "unknown node type: '{type_str}'"
+            ))),
+        }
     }
 
     /// Parse a regular file node.
@@ -218,12 +229,12 @@ impl<R: AsyncRead + Unpin + Send> NarReader<R> {
             validate_entry_name(&name)?;
 
             // Check ordering
-            if let Some(ref prev) = last_name {
-                if name <= *prev {
-                    return Err(NiphasError::NarParse(format!(
-                        "directory entries not sorted: '{prev}' followed by '{name}'"
-                    )));
-                }
+            if let Some(ref prev) = last_name
+                && name <= *prev
+            {
+                return Err(NiphasError::NarParse(format!(
+                    "directory entries not sorted: '{prev}' followed by '{name}'"
+                )));
             }
             last_name = Some(name.clone());
 
@@ -387,6 +398,122 @@ mod tests {
                 assert_eq!(target, "/nix/store/abc-glibc/lib/libc.so.6");
             }
             _ => panic!("expected symlink"),
+        }
+    }
+
+    /// Build a NAR for a directory with the given entries.
+    /// Each entry is (name, nar_node_bytes) where nar_node_bytes is
+    /// the inner serialization of a node (including "(" ... ")").
+    fn build_directory_nar(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut nar = Vec::new();
+        nar.extend(nar_str("nix-archive-1"));
+        nar.extend(nar_str("("));
+        nar.extend(nar_str("type"));
+        nar.extend(nar_str("directory"));
+        for (name, node_bytes) in entries {
+            nar.extend(nar_str("entry"));
+            nar.extend(nar_str("("));
+            nar.extend(nar_str("name"));
+            nar.extend(nar_str(name));
+            nar.extend(nar_str("node"));
+            nar.extend(node_bytes);
+            nar.extend(nar_str(")"));
+        }
+        nar.extend(nar_str(")"));
+        nar
+    }
+
+    /// Build the inner NAR bytes for a regular file node (including parens).
+    fn build_regular_node(contents: &[u8]) -> Vec<u8> {
+        let mut node = Vec::new();
+        node.extend(nar_str("("));
+        node.extend(nar_str("type"));
+        node.extend(nar_str("regular"));
+        node.extend(nar_str("contents"));
+        node.extend(&(contents.len() as u64).to_le_bytes());
+        node.extend(contents);
+        let pad = (8 - (contents.len() % 8)) % 8;
+        node.extend(std::iter::repeat_n(0u8, pad));
+        node.extend(nar_str(")"));
+        node
+    }
+
+    #[tokio::test]
+    async fn test_parse_empty_directory() {
+        let nar = build_directory_nar(&[]);
+        let reader = NarReader::new(&nar[..]);
+        let (node, hash) = reader.parse().await.unwrap();
+
+        match node {
+            NarNode::Directory { entries } => {
+                assert!(entries.is_empty());
+            }
+            _ => panic!("expected directory"),
+        }
+        assert_eq!(hash.algo, crate::nix::hash::HashAlgo::Sha256);
+        assert_eq!(hash.digest.len(), 32);
+    }
+
+    #[tokio::test]
+    async fn test_parse_directory_with_files() {
+        let nar = build_directory_nar(&[
+            ("hello.txt", build_regular_node(b"hello")),
+            ("world.txt", build_regular_node(b"world")),
+        ]);
+        let reader = NarReader::new(&nar[..]);
+        let (node, _) = reader.parse().await.unwrap();
+
+        match node {
+            NarNode::Directory { entries } => {
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].name, "hello.txt");
+                assert_eq!(entries[1].name, "world.txt");
+                match &entries[0].node {
+                    NarNode::Regular { contents, .. } => assert_eq!(contents, b"hello"),
+                    _ => panic!("expected regular file"),
+                }
+            }
+            _ => panic!("expected directory"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_parse_nested_directory() {
+        // Build: root/subdir/file.txt
+        let inner_dir = {
+            let file_node = build_regular_node(b"nested content");
+            let mut d = Vec::new();
+            d.extend(nar_str("("));
+            d.extend(nar_str("type"));
+            d.extend(nar_str("directory"));
+            d.extend(nar_str("entry"));
+            d.extend(nar_str("("));
+            d.extend(nar_str("name"));
+            d.extend(nar_str("file.txt"));
+            d.extend(nar_str("node"));
+            d.extend(&file_node);
+            d.extend(nar_str(")"));
+            d.extend(nar_str(")"));
+            d
+        };
+
+        let nar = build_directory_nar(&[("subdir", inner_dir)]);
+        let reader = NarReader::new(&nar[..]);
+        let (node, _) = reader.parse().await.unwrap();
+
+        match node {
+            NarNode::Directory { entries } => {
+                assert_eq!(entries.len(), 1);
+                assert_eq!(entries[0].name, "subdir");
+                match &entries[0].node {
+                    NarNode::Directory { entries: sub } => {
+                        assert_eq!(sub.len(), 1);
+                        assert_eq!(sub[0].name, "file.txt");
+                    }
+                    _ => panic!("expected nested directory"),
+                }
+            }
+            _ => panic!("expected directory"),
         }
     }
 

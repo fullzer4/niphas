@@ -1,23 +1,33 @@
 use crate::context::Context;
 use crate::error::OperatorError;
-use crate::eval::EvalResult;
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Service;
 use k8s_openapi::api::networking::v1::Ingress;
 use k8s_openapi::api::policy::v1::PodDisruptionBudget;
 use kube::api::{Api, Patch, PatchParams, ResourceExt};
 use niphas_core::crd::NiphasWorkload;
+use niphas_core::eval::EvalResponse;
 use serde_json::json;
 use tracing::debug;
 
 const FIELD_MANAGER: &str = "niphas-operator";
 const RUNNER_IMAGE: &str = "ghcr.io/fullzer4/niphas-runner:latest";
 
-/// Apply all child resources for a NiphasWorkload using server-side apply.
+macro_rules! insert_opt {
+    ($obj:expr, $key:expr, $val:expr) => {
+        if let Some(ref v) = $val {
+            $obj.insert(
+                $key.into(),
+                serde_json::to_value(v).expect("k8s-openapi types are serializable"),
+            );
+        }
+    };
+}
+
 pub async fn apply_child_resources(
     ctx: &Context,
     workload: &NiphasWorkload,
-    eval_result: &EvalResult,
+    eval_result: &EvalResponse,
 ) -> Result<(), OperatorError> {
     let name = workload.name_any();
     let ns = workload.namespace().unwrap_or_default();
@@ -47,7 +57,6 @@ pub async fn apply_child_resources(
     Ok(())
 }
 
-/// Generic SSA apply for any K8s resource type.
 async fn apply_resource<K>(
     ctx: &Context,
     name: &str,
@@ -74,7 +83,7 @@ where
 
 pub(crate) fn build_deployment(
     workload: &NiphasWorkload,
-    eval_result: &EvalResult,
+    eval_result: &EvalResponse,
     name: &str,
     ns: &str,
 ) -> serde_json::Value {
@@ -108,7 +117,7 @@ pub(crate) fn build_deployment(
     ];
     if let Some(ref user_tols) = workload.spec.tolerations {
         for t in user_tols {
-            tolerations.push(serde_json::to_value(t).unwrap_or_default());
+            tolerations.push(serde_json::to_value(t).expect("k8s-openapi types are serializable"));
         }
     }
 
@@ -129,51 +138,19 @@ pub(crate) fn build_deployment(
         }]
     });
 
-    let container_obj = container.as_object_mut().unwrap();
-
-    if let Some(ref args) = workload.spec.args {
-        container_obj.insert("args".into(), json!(args));
-    }
-    if let Some(ref env) = workload.spec.env {
-        container_obj.insert("env".into(), serde_json::to_value(env).unwrap_or_default());
-    }
-    if let Some(ref ports) = workload.spec.ports {
-        container_obj.insert(
-            "ports".into(),
-            serde_json::to_value(ports).unwrap_or_default(),
-        );
-    }
-    if let Some(ref resources) = workload.spec.resources {
-        container_obj.insert(
-            "resources".into(),
-            serde_json::to_value(resources).unwrap_or_default(),
-        );
-    }
-    if let Some(ref probe) = workload.spec.liveness_probe {
-        container_obj.insert(
-            "livenessProbe".into(),
-            serde_json::to_value(probe).unwrap_or_default(),
-        );
-    }
-    if let Some(ref probe) = workload.spec.readiness_probe {
-        container_obj.insert(
-            "readinessProbe".into(),
-            serde_json::to_value(probe).unwrap_or_default(),
-        );
-    }
-    if let Some(ref probe) = workload.spec.startup_probe {
-        container_obj.insert(
-            "startupProbe".into(),
-            serde_json::to_value(probe).unwrap_or_default(),
-        );
-    }
+    let co = container.as_object_mut().unwrap();
+    insert_opt!(co, "args", workload.spec.args);
+    insert_opt!(co, "env", workload.spec.env);
+    insert_opt!(co, "ports", workload.spec.ports);
+    insert_opt!(co, "resources", workload.spec.resources);
+    insert_opt!(co, "livenessProbe", workload.spec.liveness_probe);
+    insert_opt!(co, "readinessProbe", workload.spec.readiness_probe);
+    insert_opt!(co, "startupProbe", workload.spec.startup_probe);
 
     if let Some(ref extra_mounts) = workload.spec.extra_volume_mounts {
-        if let Some(mounts) = container_obj.get_mut("volumeMounts") {
-            if let Some(arr) = mounts.as_array_mut() {
-                for m in extra_mounts {
-                    arr.push(serde_json::to_value(m).unwrap_or_default());
-                }
+        if let Some(arr) = co.get_mut("volumeMounts").and_then(|v| v.as_array_mut()) {
+            for m in extra_mounts {
+                arr.push(serde_json::to_value(m).expect("k8s-openapi types are serializable"));
             }
         }
     }
@@ -183,42 +160,16 @@ pub(crate) fn build_deployment(
         "csi": {
             "driver": "niphas.io.csi",
             "volumeAttributes": {
+                "storePath": eval_result.store_path,
                 "closurePaths": closure_csv
             }
         }
     })];
     if let Some(ref extra_vols) = workload.spec.extra_volumes {
         for v in extra_vols {
-            volumes.push(serde_json::to_value(v).unwrap_or_default());
+            volumes.push(serde_json::to_value(v).expect("k8s-openapi types are serializable"));
         }
     }
-
-    let topology_spread = if replicas >= 2 {
-        json!([
-            {
-                "maxSkew": 1,
-                "topologyKey": "kubernetes.io/hostname",
-                "whenUnsatisfiable": "DoNotSchedule",
-                "labelSelector": {
-                    "matchLabels": {
-                        "niphas.io/workload": name
-                    }
-                }
-            },
-            {
-                "maxSkew": 1,
-                "topologyKey": "topology.kubernetes.io/zone",
-                "whenUnsatisfiable": "ScheduleAnyway",
-                "labelSelector": {
-                    "matchLabels": {
-                        "niphas.io/workload": name
-                    }
-                }
-            }
-        ])
-    } else {
-        json!(null)
-    };
 
     let mut pod_spec = json!({
         "nodeSelector": node_selector,
@@ -227,19 +178,29 @@ pub(crate) fn build_deployment(
         "volumes": volumes,
     });
 
-    if topology_spread != json!(null) {
-        pod_spec
-            .as_object_mut()
-            .unwrap()
-            .insert("topologySpreadConstraints".into(), topology_spread);
-    }
+    let ps = pod_spec.as_object_mut().unwrap();
 
-    if let Some(ref affinity) = workload.spec.affinity {
-        pod_spec.as_object_mut().unwrap().insert(
-            "affinity".into(),
-            serde_json::to_value(affinity).unwrap_or_default(),
+    if replicas >= 2 {
+        ps.insert(
+            "topologySpreadConstraints".into(),
+            json!([
+                {
+                    "maxSkew": 1,
+                    "topologyKey": "kubernetes.io/hostname",
+                    "whenUnsatisfiable": "DoNotSchedule",
+                    "labelSelector": { "matchLabels": { "niphas.io/workload": name } }
+                },
+                {
+                    "maxSkew": 1,
+                    "topologyKey": "topology.kubernetes.io/zone",
+                    "whenUnsatisfiable": "ScheduleAnyway",
+                    "labelSelector": { "matchLabels": { "niphas.io/workload": name } }
+                }
+            ]),
         );
     }
+
+    insert_opt!(ps, "affinity", workload.spec.affinity);
 
     json!({
         "apiVersion": "apps/v1",
@@ -481,8 +442,8 @@ mod tests {
         }
     }
 
-    fn test_eval_result() -> EvalResult {
-        EvalResult {
+    fn test_eval_result() -> EvalResponse {
+        EvalResponse {
             store_path: "/nix/store/abc123-myapp-1.0.0".into(),
             name: "myapp-1.0.0".into(),
             main_program: Some("myapp".into()),
@@ -505,17 +466,22 @@ mod tests {
         assert_eq!(dep["metadata"]["name"], "myapp");
         assert_eq!(dep["metadata"]["namespace"], "default");
 
-        // Check CSI volume
         let volumes = dep["spec"]["template"]["spec"]["volumes"]
             .as_array()
             .unwrap();
         assert_eq!(volumes[0]["csi"]["driver"], "niphas.io.csi");
+        assert_eq!(
+            volumes[0]["csi"]["volumeAttributes"]["storePath"], "/nix/store/abc123-myapp-1.0.0",
+            "storePath must be passed in volumeAttributes"
+        );
+        assert_eq!(
+            volumes[0]["csi"]["volumeAttributes"]["closurePaths"],
+            "/nix/store/abc123-myapp-1.0.0,/nix/store/def456-glibc-2.37"
+        );
 
-        // Check nodeSelector includes niphas.io/store=true
         let ns = &dep["spec"]["template"]["spec"]["nodeSelector"];
         assert_eq!(ns["niphas.io/store"], "true");
 
-        // Check command resolves to main_program
         let containers = dep["spec"]["template"]["spec"]["containers"]
             .as_array()
             .unwrap();
@@ -659,11 +625,9 @@ mod tests {
         assert_eq!(oref["blockOwnerDeletion"], true);
     }
 
-    // -- EvalResult tests --
-
     #[test]
     fn test_resolved_command_with_main_program() {
-        let eval = EvalResult {
+        let eval = EvalResponse {
             store_path: "/nix/store/abc-hello-2.12.1".into(),
             name: "hello-2.12.1".into(),
             main_program: Some("hello".into()),
@@ -677,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_resolved_command_without_main_program() {
-        let eval = EvalResult {
+        let eval = EvalResponse {
             store_path: "/nix/store/abc-hello-2.12.1".into(),
             name: "hello-2.12.1".into(),
             main_program: None,

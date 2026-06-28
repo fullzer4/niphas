@@ -58,10 +58,18 @@ runner:
     repository: ghcr.io/fullzer4/niphas-runner
     tag: latest
 
+docs:
+  enabled: false
+  flakeRef: "github:NixOS/nixpkgs"
+  attribute: "legacyPackages.x86_64-linux.hello"
+  replicas: 1
+  service:
+    port: 80
+
 config:
   logLevel: info
   binaryCaches:
-    - https://cache.nixos.org
+    - url: https://cache.nixos.org
   allowedFlakeOrigins:
     - "github:*"
   evalWebhookUrl: http://niphas-eval.niphas-system.svc:8443

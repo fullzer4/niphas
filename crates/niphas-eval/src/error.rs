@@ -1,16 +1,59 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use niphas_core::error::NiphasError;
 use serde::Serialize;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum AppError {
+    #[error("invalid input: {0}")]
     InvalidInput(String),
+
+    #[error("flake not allowed: {0}")]
     FlakeNotAllowed(String),
+
+    #[error("evaluation failed: {0}")]
     EvalFailed(String),
+
+    #[error("evaluation exceeded timeout")]
     EvalTimeout,
+
+    #[error("store path not cached: {0}")]
     StorePathNotCached(String),
+
+    #[error("closure resolution failed: {0}")]
     ClosureResolutionFailed(String),
+
+    #[error("internal error: {0}")]
     Internal(String),
+}
+
+impl AppError {
+    /// HTTP status code for this error.
+    fn status_code(&self) -> StatusCode {
+        match self {
+            Self::InvalidInput(_) => StatusCode::BAD_REQUEST,
+            Self::FlakeNotAllowed(_) => StatusCode::FORBIDDEN,
+            Self::EvalFailed(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            Self::EvalTimeout => StatusCode::REQUEST_TIMEOUT,
+            Self::StorePathNotCached(_) => StatusCode::NOT_FOUND,
+            Self::ClosureResolutionFailed(_) => StatusCode::BAD_GATEWAY,
+            Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    /// Machine-readable error code for the JSON response.
+    fn error_code(&self) -> &'static str {
+        match self {
+            Self::InvalidInput(_) => "InvalidInput",
+            Self::FlakeNotAllowed(_) => "FlakeNotAllowed",
+            Self::EvalFailed(_) => "EvalFailed",
+            Self::EvalTimeout => "EvalTimeout",
+            Self::StorePathNotCached(_) => "StorePathNotCached",
+            Self::ClosureResolutionFailed(_) => "ClosureResolutionFailed",
+            Self::Internal(_) => "InternalError",
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -21,44 +64,24 @@ struct ErrorResponse {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, code, message) = match self {
-            AppError::InvalidInput(msg) => (StatusCode::BAD_REQUEST, "InvalidInput", msg),
-            AppError::FlakeNotAllowed(msg) => (StatusCode::FORBIDDEN, "FlakeNotAllowed", msg),
-            AppError::EvalFailed(msg) => (StatusCode::UNPROCESSABLE_ENTITY, "EvalFailed", msg),
-            AppError::EvalTimeout => (
-                StatusCode::REQUEST_TIMEOUT,
-                "EvalTimeout",
-                "Evaluation exceeded timeout".into(),
-            ),
-            AppError::StorePathNotCached(msg) => (StatusCode::NOT_FOUND, "StorePathNotCached", msg),
-            AppError::ClosureResolutionFailed(msg) => {
-                (StatusCode::BAD_GATEWAY, "ClosureResolutionFailed", msg)
-            }
-            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "InternalError", msg),
-        };
-
+        let status = self.status_code();
         let body = ErrorResponse {
-            error: code.into(),
-            message,
+            error: self.error_code().into(),
+            message: self.to_string(),
         };
-
         (status, axum::Json(body)).into_response()
     }
 }
 
-impl From<niphas_core::error::NiphasError> for AppError {
-    fn from(e: niphas_core::error::NiphasError) -> Self {
+impl From<NiphasError> for AppError {
+    fn from(e: NiphasError) -> Self {
         match e {
-            niphas_core::error::NiphasError::InvalidInput(msg) => AppError::InvalidInput(msg),
-            niphas_core::error::NiphasError::FlakeNotAllowed(msg) => AppError::FlakeNotAllowed(msg),
-            niphas_core::error::NiphasError::EvalTimeout(_) => AppError::EvalTimeout,
-            niphas_core::error::NiphasError::StorePathNotCached(msg) => {
-                AppError::StorePathNotCached(msg)
-            }
-            niphas_core::error::NiphasError::ClosureResolution(msg) => {
-                AppError::ClosureResolutionFailed(msg)
-            }
-            other => AppError::Internal(other.to_string()),
+            NiphasError::InvalidInput(msg) => Self::InvalidInput(msg),
+            NiphasError::FlakeNotAllowed(msg) => Self::FlakeNotAllowed(msg),
+            NiphasError::EvalTimeout(_) => Self::EvalTimeout,
+            NiphasError::StorePathNotCached(msg) => Self::StorePathNotCached(msg),
+            NiphasError::ClosureResolution(msg) => Self::ClosureResolutionFailed(msg),
+            other => Self::Internal(other.to_string()),
         }
     }
 }
@@ -68,62 +91,60 @@ mod tests {
     use super::*;
     use http_body_util::BodyExt;
 
-    async fn status_of(err: AppError) -> StatusCode {
-        let resp = err.into_response();
-        resp.status()
+    fn status_of(err: AppError) -> StatusCode {
+        err.into_response().status()
     }
 
     async fn body_of(err: AppError) -> serde_json::Value {
         let resp = err.into_response();
-        let body = resp.into_body();
-        let bytes = body.collect().await.unwrap().to_bytes();
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         serde_json::from_slice(&bytes).unwrap()
     }
 
-    #[tokio::test]
-    async fn test_invalid_input_400() {
+    #[test]
+    fn test_invalid_input_400() {
         assert_eq!(
-            status_of(AppError::InvalidInput("bad flake_ref".into())).await,
+            status_of(AppError::InvalidInput("bad flake_ref".into())),
             StatusCode::BAD_REQUEST
         );
     }
 
-    #[tokio::test]
-    async fn test_flake_not_allowed_403() {
+    #[test]
+    fn test_flake_not_allowed_403() {
         assert_eq!(
-            status_of(AppError::FlakeNotAllowed("bad".into())).await,
+            status_of(AppError::FlakeNotAllowed("bad".into())),
             StatusCode::FORBIDDEN
         );
     }
 
-    #[tokio::test]
-    async fn test_eval_failed_422() {
+    #[test]
+    fn test_eval_failed_422() {
         assert_eq!(
-            status_of(AppError::EvalFailed("nix failed".into())).await,
+            status_of(AppError::EvalFailed("nix failed".into())),
             StatusCode::UNPROCESSABLE_ENTITY
         );
     }
 
-    #[tokio::test]
-    async fn test_eval_timeout_408() {
+    #[test]
+    fn test_eval_timeout_408() {
         assert_eq!(
-            status_of(AppError::EvalTimeout).await,
+            status_of(AppError::EvalTimeout),
             StatusCode::REQUEST_TIMEOUT
         );
     }
 
-    #[tokio::test]
-    async fn test_closure_resolution_502() {
+    #[test]
+    fn test_closure_resolution_502() {
         assert_eq!(
-            status_of(AppError::ClosureResolutionFailed("fail".into())).await,
+            status_of(AppError::ClosureResolutionFailed("fail".into())),
             StatusCode::BAD_GATEWAY
         );
     }
 
-    #[tokio::test]
-    async fn test_internal_500() {
+    #[test]
+    fn test_internal_500() {
         assert_eq!(
-            status_of(AppError::Internal("oops".into())).await,
+            status_of(AppError::Internal("oops".into())),
             StatusCode::INTERNAL_SERVER_ERROR
         );
     }
@@ -132,20 +153,18 @@ mod tests {
     async fn test_error_body_shape() {
         let body = body_of(AppError::FlakeNotAllowed("github:evil/repo".into())).await;
         assert_eq!(body["error"], "FlakeNotAllowed");
-        assert_eq!(body["message"], "github:evil/repo");
+        assert_eq!(body["message"], "flake not allowed: github:evil/repo");
     }
 
     #[tokio::test]
     async fn test_invalid_input_body_shape() {
         let body = body_of(AppError::InvalidInput("bad field".into())).await;
         assert_eq!(body["error"], "InvalidInput");
-        assert_eq!(body["message"], "bad field");
+        assert_eq!(body["message"], "invalid input: bad field");
     }
 
-    #[tokio::test]
-    async fn test_from_niphas_error() {
-        use niphas_core::error::NiphasError;
-
+    #[test]
+    fn test_from_niphas_error() {
         let err: AppError = NiphasError::InvalidInput("bad".into()).into();
         assert!(matches!(err, AppError::InvalidInput(_)));
 

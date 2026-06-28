@@ -101,33 +101,79 @@ impl CacheClient {
     ///
     /// Returns the raw compressed bytes. Caller is responsible for
     /// decompression and hash verification.
+    ///
+    /// Retries transient errors (timeouts, connection resets, 5xx) up to 3 times
+    /// with exponential backoff (100ms, 500ms, 2s). Uses a dynamic per-request
+    /// timeout scaled by file size (30s + 1s per MB).
     async fn fetch_nar_impl(&self, narinfo: &NarInfo) -> Result<bytes::Bytes, NiphasError> {
+        const MAX_RETRIES: u32 = 3;
+        const BACKOFF_MS: [u64; 3] = [100, 500, 2000];
+
+        // Dynamic timeout: 30s base + 1s per MB
+        let timeout_secs = 30 + (narinfo.file_size / 1_000_000);
+        let req_timeout = Duration::from_secs(timeout_secs);
+
         // The URL in narinfo is relative to the cache base URL.
         // Try each cache in case one has the NAR.
         let mut last_err = None;
 
         for cache in &self.caches {
             let url = format!("{}/{}", cache.url.trim_end_matches('/'), narinfo.url);
-            debug!(url = %url, "fetching NAR");
+            debug!(url = %url, timeout_secs = timeout_secs, "fetching NAR");
 
-            match self.http.get(&url).send().await {
-                Ok(resp) => {
-                    if resp.status().is_success() {
-                        let data = resp.bytes().await.map_err(|e| {
-                            NiphasError::Cache(format!("failed to read NAR body: {e}"))
-                        })?;
-                        return Ok(data);
+            let mut attempt = 0;
+            loop {
+                match self.http.get(&url).timeout(req_timeout).send().await {
+                    Ok(resp) => {
+                        if resp.status().is_success() {
+                            let data = resp.bytes().await.map_err(|e| {
+                                NiphasError::Cache(format!("failed to read NAR body: {e}"))
+                            })?;
+                            if (data.len() as u64) < narinfo.file_size {
+                                // Truncated download — fewer bytes than expected.
+                                // More bytes is tolerable (CDN/cache inconsistency);
+                                // the SHA256 hash check downstream catches corruption.
+                                return Err(NiphasError::Cache(format!(
+                                    "incomplete NAR download: expected {} bytes, got {}",
+                                    narinfo.file_size,
+                                    data.len()
+                                )));
+                            }
+                            return Ok(data);
+                        }
+
+                        let status = resp.status();
+                        let is_transient = status.is_server_error();
+
+                        if is_transient && attempt < MAX_RETRIES {
+                            warn!(url = %url, %status, attempt, "transient HTTP error, retrying");
+                            tokio::time::sleep(Duration::from_millis(BACKOFF_MS[attempt as usize]))
+                                .await;
+                            attempt += 1;
+                            continue;
+                        }
+
+                        warn!(url = %url, %status, "failed to fetch NAR");
+                        last_err = Some(NiphasError::Cache(format!(
+                            "HTTP {status} fetching NAR from {url}"
+                        )));
+                        break;
                     }
+                    Err(e) => {
+                        let is_transient = e.is_timeout() || e.is_connect() || e.is_request();
 
-                    let status = resp.status();
-                    warn!(url = %url, %status, "failed to fetch NAR");
-                    last_err = Some(NiphasError::Cache(format!(
-                        "HTTP {status} fetching NAR from {url}"
-                    )));
-                }
-                Err(e) => {
-                    warn!(url = %url, error = %e, "failed to fetch NAR");
-                    last_err = Some(NiphasError::Cache(format!("NAR request failed: {e}")));
+                        if is_transient && attempt < MAX_RETRIES {
+                            warn!(url = %url, error = %e, attempt, "transient error, retrying");
+                            tokio::time::sleep(Duration::from_millis(BACKOFF_MS[attempt as usize]))
+                                .await;
+                            attempt += 1;
+                            continue;
+                        }
+
+                        warn!(url = %url, error = %e, "failed to fetch NAR");
+                        last_err = Some(NiphasError::Cache(format!("NAR request failed: {e}")));
+                        break;
+                    }
                 }
             }
         }
