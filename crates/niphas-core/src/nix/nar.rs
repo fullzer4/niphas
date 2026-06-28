@@ -229,12 +229,12 @@ impl<R: AsyncRead + Unpin + Send> NarReader<R> {
             validate_entry_name(&name)?;
 
             // Check ordering
-            if let Some(ref prev) = last_name {
-                if name <= *prev {
-                    return Err(NiphasError::NarParse(format!(
-                        "directory entries not sorted: '{prev}' followed by '{name}'"
-                    )));
-                }
+            if let Some(ref prev) = last_name
+                && name <= *prev
+            {
+                return Err(NiphasError::NarParse(format!(
+                    "directory entries not sorted: '{prev}' followed by '{name}'"
+                )));
             }
             last_name = Some(name.clone());
 
